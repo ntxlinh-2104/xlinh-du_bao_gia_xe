@@ -460,8 +460,8 @@ Quy trình xây dựng mô hình gồm các bước:
   - **R²** (hệ số xác định)
 
 Mô hình sau khi huấn luyện được dùng trực tiếp trong app để:
-- Dự đoán giá tham khảo cho **người mua**.
-- Đưa ra khuyến nghị và cảnh báo giá bất thường cho **người bán**.
+- Dự đoán giá tham khảo.
+- Đưa ra khuyến nghị và cảnh báo giá bất thường.
 """
     )
 
@@ -472,5 +472,6 @@ elif menu == "Dự đoán giá":
 elif menu == "Xác định xe bất thường":
     show_banner_and_chart()
     page_phat_hien()
+
 
 
