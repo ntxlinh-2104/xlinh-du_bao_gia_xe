@@ -230,7 +230,7 @@ for col in categorical_features:
 #  PAGE: DỰ ĐOÁN GIÁ
 # ==========================
 def page_du_doan():
-    st.markdown("## 🚀 Dự đoán giá xe máy – Người mua")
+    st.markdown("## 🚀 Dự đoán giá xe máy")
     st.subheader("📘 Nhập thông tin xe để dự đoán")
 
     with st.form("form_du_doan"):
@@ -285,7 +285,7 @@ def page_du_doan():
 #  PAGE: PHÁT HIỆN GIÁ BẤT THƯỜNG
 # ==========================
 def page_phat_hien():
-    st.markdown("## 🧭 Phát hiện giá đăng bán bất thường – Người bán")
+    st.markdown("## 🧭 Phát hiện giá đăng bán bất thường")
     st.subheader("📦 Kiểm tra mức giá bạn định đăng")
 
     with st.form("form_phat_hien"):
@@ -338,7 +338,7 @@ def page_phat_hien():
 
         seller_price = to_number_from_str(price_s)
 
-        st.write("### Dữ liệu gửi vào mô hình (người bán)")
+        st.write("### Dữ liệu gửi vào mô hình")
         st.dataframe(X_sell)
 
         if np.isnan(seller_price):
@@ -472,6 +472,7 @@ elif menu == "Dự đoán giá":
 elif menu == "Xác định xe bất thường":
     show_banner_and_chart()
     page_phat_hien()
+
 
 
 
