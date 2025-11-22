@@ -1,32 +1,154 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pickle
 import re
 import os
 import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import mean_squared_error, r2_score
+
 
 # ==========================
 #  CẤU HÌNH GIAO DIỆN
 # ==========================
 st.set_page_config(page_title="Dự đoán giá xe máy", layout="centered")
 
+DATA_PATH = "motorbike_cleaned.csv"
+
 # ==========================
 #  LOAD DATA CHO CHART + DROPDOWN
 # ==========================
-DATA_PATH = "motorbike_cleaned.csv"
-df = None
-if os.path.exists(DATA_PATH):
+@st.cache_data
+def load_data():
+    if os.path.exists(DATA_PATH):
+        try:
+            return pd.read_csv(DATA_PATH)
+        except Exception:
+            return None
+    return None
+
+
+df = load_data()
+
+# ==========================
+#  HÀM PHỤ TRỢ
+# ==========================
+def to_number_from_str(s):
+    if pd.isna(s):
+        return np.nan
+    if isinstance(s, (int, float)):
+        return float(s)
+    s = str(s)
+    s = re.sub(r"[^\d]", "", s)
+    return float(s) if s else np.nan
+
+
+def format_vnd(x):
     try:
-        df = pd.read_csv(DATA_PATH)
+        x = float(x)
+        return f"{int(x):,} ₫".replace(",", ".")
     except Exception:
-        df = None
+        return str(x)
+
+
+# ==========================
+#  TRAIN MODEL TRỰC TIẾP TỪ CSV
+# ==========================
+@st.cache_resource
+def train_model():
+    if df is None:
+        raise ValueError("Không đọc được file motorbike_cleaned.csv để train mô hình.")
+
+    data = df.copy()
+
+    # ---- Xử lý lại cột price như script train ----
+    if all(col in data.columns for col in ["price_min", "price_max", "price"]):
+        data["mid_price"] = (data["price_min"] + data["price_max"]) / 2
+        cond_outside = (data["price"] < data["price_min"]) | (data["price"] > data["price_max"])
+        data.loc[cond_outside, "price"] = data.loc[cond_outside, "mid_price"]
+
+    # ---- Làm sạch mileage, years_used ----
+    def clean_numeric(col):
+        return (
+            col.astype(str)
+               .str.replace(r"[^0-9\.\-]", "", regex=True)
+               .replace("", np.nan)
+               .astype(float)
+        )
+
+    if "mileage" in data.columns:
+        data["mileage"] = clean_numeric(data["mileage"])
+    else:
+        data["mileage"] = np.nan
+
+    if "years_used" in data.columns:
+        data["years_used"] = clean_numeric(data["years_used"])
+    else:
+        data["years_used"] = np.nan
+
+    data = data.dropna(subset=["price", "mileage", "years_used"])
+
+    feature_numeric = ["mileage", "years_used"]
+    feature_cat = [c for c in ["model", "category"] if c in data.columns]
+
+    X = data[feature_numeric + feature_cat]
+    y = data["price"]
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", "passthrough", feature_numeric),
+            ("cat", OneHotEncoder(handle_unknown="ignore"), feature_cat),
+        ]
+    )
+
+    gbr = GradientBoostingRegressor(
+        n_estimators=150,
+        learning_rate=0.1,
+        max_depth=3,
+        random_state=42,
+    )
+
+    pipeline = Pipeline(
+        steps=[
+            ("preprocess", preprocessor),
+            ("model", gbr),
+        ]
+    )
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.3, random_state=42
+    )
+
+    pipeline.fit(X_train, y_train)
+
+    y_pred = pipeline.predict(X_test)
+    rmse = mean_squared_error(y_test, y_pred) ** 0.5
+    r2 = r2_score(y_test, y_pred)
+
+    # log ra terminal / logs
+    print(f"[MODEL TRAIN] RMSE: {rmse:,.0f}")
+    print(f"[MODEL TRAIN] R2:   {r2:.4f}")
+
+    expected_features = ["mileage", "years_used", "model", "category"]
+    return pipeline, expected_features
+
+
+model, expected_features = train_model()
+numeric_features = ["mileage", "years_used"]
+categorical_features = ["model", "category"]
+
 
 # ==========================
 #  ẢNH BANNER
 # ==========================
 if os.path.exists("xe_may_cu.jpg"):
     st.image("xe_may_cu.jpg", use_container_width=True)
+
 
 # ==========================
 #  BIỂU ĐỒ TOP 5 MODEL
@@ -58,42 +180,6 @@ if df is not None and "model" in df.columns:
 
     st.pyplot(fig)
 
-# ==========================
-#  HÀM PHỤ TRỢ
-# ==========================
-def to_number_from_str(s):
-    if pd.isna(s):
-        return np.nan
-    if isinstance(s, (int, float)):
-        return float(s)
-    s = str(s)
-    s = re.sub(r"[^\d]", "", s)
-    return float(s) if s else np.nan
-
-
-def format_vnd(x):
-    try:
-        x = float(x)
-        return f"{int(x):,} ₫".replace(",", ".")
-    except Exception:
-        return str(x)
-
-# ==========================
-#  LOAD MODEL
-# ==========================
-import joblib
-
-MODEL_PATH = "motobike_price_model.joblib"
-model = joblib.load(MODEL_PATH)
-
-
-
-# Lúc train model dùng các feature này:
-expected_features = ["mileage", "years_used", "model", "category"]
-numeric_features = ["mileage", "years_used"]
-categorical_features = ["model", "category"]
-# engine_capacity chỉ hiển thị trên UI, không đưa vào model
-# trừ khi sau này đạo hữu retrain pipeline có thêm cột này.
 
 # ==========================
 #  DROPDOWN OPTIONS TỪ DATA
@@ -103,13 +189,12 @@ for col in categorical_features:
     if df is not None and col in df.columns:
         vals = sorted(df[col].dropna().astype(str).unique().tolist())
         if col == "model":
-            # model: chỉ (Không chọn) + danh sách → vì mình cho thêm ô "tự nhập"
             select_options[col] = ["(Không chọn)"] + vals
         else:
-            # category: giữ thêm "Khác..."
             select_options[col] = ["(Không chọn)"] + vals + ["Khác..."]
     else:
         select_options[col] = ["(Không chọn)"]
+
 
 # =====================================================
 #  BOX 1: DỰ ĐOÁN GIÁ XE MÁY – NGƯỜI MUA
@@ -118,13 +203,11 @@ st.markdown("## 🚀 Dự đoán giá xe máy – Người mua")
 st.subheader("📘 Nhập thông tin xe để dự đoán")
 
 with st.form("form_du_doan"):
-    # --- Numeric: mileage, years_used, engine_capacity ---
     c1, c2, c3 = st.columns(3)
     mileage = c1.text_input("Số km đã đi:", "15000")
     years_used = c2.text_input("Số năm sử dụng:", "2")
-    engine_capacity = c3.text_input("Phân khối (cc):", "125")  # chỉ hiển thị, chưa đưa vào model
+    engine_capacity = c3.text_input("Phân khối (cc):", "125")  # chưa đưa vào model
 
-    # --- Categorical: model ---
     model_sel = st.selectbox("Dòng xe (model):", select_options["model"])
     model_free = st.text_input("Hoặc tự nhập dòng xe:", "")
 
@@ -135,7 +218,6 @@ with st.form("form_du_doan"):
     else:
         model_input = model_sel
 
-    # --- Categorical: category ---
     category_sel = st.selectbox("Loại xe (category):", select_options["category"])
     if category_sel == "Khác...":
         category_input = st.text_input("Nhập loại xe khác:")
@@ -151,7 +233,6 @@ if submit_buy:
         [{
             "mileage": to_number_from_str(mileage),
             "years_used": to_number_from_str(years_used),
-            # engine_capacity hiện tại không đưa vào model
             "model": model_input,
             "category": category_input,
         }]
@@ -168,6 +249,7 @@ if submit_buy:
         st.error("Lỗi khi dự đoán (người mua).")
         st.exception(e)
 
+
 # =====================================================
 #  BOX 2: PHÁT HIỆN GIÁ ĐĂNG BÁN BẤT THƯỜNG – NGƯỜI BÁN
 # =====================================================
@@ -176,13 +258,11 @@ st.markdown("## 🧭 Phát hiện giá đăng bán bất thường – Người 
 st.subheader("📦 Kiểm tra mức giá bạn định đăng")
 
 with st.form("form_phat_hien"):
-    # --- Numeric ---
     c1s, c2s, c3s = st.columns(3)
     mileage_s = c1s.text_input("Số km đã đi:", "15000", key="seller_mileage")
     years_used_s = c2s.text_input("Số năm sử dụng:", "2", key="seller_years")
-    engine_capacity_s = c3s.text_input("Phân khối (cc):", "125", key="seller_cc")  # chỉ hiển thị
+    engine_capacity_s = c3s.text_input("Phân khối (cc):", "125", key="seller_cc")
 
-    # --- Categorical: model ---
     model_sel_s = st.selectbox(
         "Dòng xe (model):", select_options["model"], key="seller_model_sel"
     )
@@ -197,7 +277,6 @@ with st.form("form_phat_hien"):
     else:
         model_input_s = model_sel_s
 
-    # --- Categorical: category ---
     category_sel_s = st.selectbox(
         "Loại xe (category):", select_options["category"], key="seller_cat_sel"
     )
@@ -219,7 +298,6 @@ if submit_sell:
         [{
             "mileage": to_number_from_str(mileage_s),
             "years_used": to_number_from_str(years_used_s),
-            # engine_capacity_s chưa đưa vào model
             "model": model_input_s,
             "category": category_input_s,
         }]
