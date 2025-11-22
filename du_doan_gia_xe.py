@@ -398,8 +398,8 @@ if menu == "Tên thành viên":
 **Đề tài:** Dự đoán giá xe máy cũ & phát hiện tin đăng bất thường trên Chợ Tốt.
 
 **Nhóm thực hiện:**
-- **Phạm Văn Hải** – xây dựng mô hình & giao diện người dùng.  
-- **Nguyễn Trần Xuân Linh** – xử lý dữ liệu, phân tích & hiệu chỉnh mô hình.
+- **Phạm Văn Hải** – xây dựng mô hình mô hình phát hiện bất thường.  
+- **Nguyễn Trần Xuân Linh** – xây dựng mô hình dự báo giá.
 """
     )
 
@@ -448,7 +448,7 @@ Quy trình xây dựng mô hình gồm các bước:
 - Linear Regression (mô hình cơ bản để so sánh).
 - Random Forest Regressor.
 - Gradient Boosting Regressor.
-- (Có thể mở rộng sang XGBoost / mô hình trên PySpark nếu cần).
+- XGBoost.
 
 ### 4. Mô hình triển khai trên app
 - Sử dụng **GradientBoostingRegressor**:
@@ -474,3 +474,4 @@ elif menu == "Dự đoán giá":
 elif menu == "Xác định xe bất thường":
     show_banner_and_chart()
     page_phat_hien()
+
