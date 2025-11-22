@@ -227,7 +227,7 @@ for col in categorical_features:
 
 
 # ==========================
-#  PAGE: DỰ ĐOÁN GIÁ – NGƯỜI MUA
+#  PAGE: DỰ ĐOÁN GIÁ
 # ==========================
 def page_du_doan():
     st.markdown("## 🚀 Dự đoán giá xe máy – Người mua")
@@ -282,7 +282,7 @@ def page_du_doan():
 
 
 # ==========================
-#  PAGE: PHÁT HIỆN GIÁ BẤT THƯỜNG – NGƯỜI BÁN
+#  PAGE: PHÁT HIỆN GIÁ BẤT THƯỜNG
 # ==========================
 def page_phat_hien():
     st.markdown("## 🧭 Phát hiện giá đăng bán bất thường – Người bán")
@@ -418,9 +418,7 @@ elif menu == "Tóm tắt dự án":
 - Các thông tin chính gồm: giá, khoảng giá min–max, số km đã đi (mileage),
   số năm sử dụng (years_used), dòng xe (model), loại xe (category), v.v.
 
-**Ý nghĩa ứng dụng:**
-- Giúp sinh viên thực hành quy trình đầy đủ: thu thập dữ liệu – tiền xử lý –
-  xây dựng mô hình máy học – triển khai thành web app thực tế.
+
 """
     )
 
@@ -474,4 +472,5 @@ elif menu == "Dự đoán giá":
 elif menu == "Xác định xe bất thường":
     show_banner_and_chart()
     page_phat_hien()
+
 
