@@ -81,9 +81,12 @@ def format_vnd(x):
 # ==========================
 #  LOAD MODEL
 # ==========================
-MODEL_PATH = "motobike_price_model.pkl"
-with open(MODEL_PATH, "rb") as f:
-    model = pickle.load(f)
+import joblib
+
+MODEL_PATH = "motobike_price_model.joblib"
+model = joblib.load(MODEL_PATH)
+
+
 
 # Lúc train model dùng các feature này:
 expected_features = ["mileage", "years_used", "model", "category"]
@@ -272,3 +275,4 @@ if submit_sell:
         except Exception as e:
             st.error("Lỗi khi đánh giá giá đăng bán.")
             st.exception(e)
+
