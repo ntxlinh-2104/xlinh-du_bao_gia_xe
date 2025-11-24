@@ -232,71 +232,83 @@ def page_summary():
 
 
 def page_model():
-    st.subheader("🧠 Xây dựng mô hình")
+    st.subheader("3. XÂY DỰNG MÔ HÌNH DỰ BÁO GIÁ XE MÁY")
 
     st.markdown(
         """
-### (1) Tiền xử lý dữ liệu (PySpark)
-Dự án sử dụng dữ liệu xe máy cũ từ **Chợ Tốt** và tiến hành xử lý bằng **PySpark** để đảm bảo tốc độ và khả năng mở rộng trên dữ liệu lớn.
+### 3.1. Chuẩn bị và tiền xử lý dữ liệu
 
-Quy trình tiền xử lý gồm:
+Bộ dữ liệu xe máy cũ được thu thập từ **Chợ Tốt** với đầy đủ thông tin như thương hiệu, dòng xe, phân khối, số năm sử dụng, số km đã đi, giá rao bán và các đặc điểm kèm theo. Dữ liệu được làm sạch và chuẩn hóa qua các bước:
 
-- Làm sạch dữ liệu, chuẩn hóa định dạng số (`price`, `mileage`,…).
-- Tạo biến mới như `years_used = năm hiện tại - year_sx`.
-- Mã hóa các biến phân loại bằng:
-  - **StringIndexer**
-  - **OneHotEncoder**
-- Chuẩn hóa các biến liên tục bằng **StandardScaler**.
-- Kết hợp toàn bộ đặc trưng vào một vector duy nhất bằng **VectorAssembler**.
+- Chuẩn hóa đơn vị giá (`price`, `price_min`, `price_max`, `mid_price`).
+- Loại bỏ các bản ghi thiếu thông tin quan trọng hoặc có ngoại lai quá mạnh.
+- Chuyển đổi kiểu dữ liệu phù hợp cho các trường số (`years_used`, `mileage`, `engine_capacity`,…).
+- Chuẩn hóa (scaling) các biến liên tục nhằm giảm chênh lệch giữa các biến có biên độ lớn.
 
-Dữ liệu sau tiền xử lý được chia thành:
-- **80% để huấn luyện**,  
-- **20% để kiểm tra mô hình**.
+Các biến phân loại (`brand`, `model`, `category`) được mã hóa bằng **StringIndexer** và **OneHotEncoder**, sau đó toàn bộ biến đầu vào được gộp thành một vector duy nhất thông qua **VectorAssembler**. Cuối cùng, dữ liệu được chia thành:
+
+- **80%** dùng để huấn luyện mô hình  
+- **20%** dùng để kiểm tra mô hình
+
+Việc triển khai được thực hiện trên nền tảng **PySpark MLlib**, phù hợp với dữ liệu lớn và bài toán có nhiều biến dạng *category*.
 
 ---
 
-### (2) So sánh và lựa chọn mô hình
-Trên tập dữ liệu đã xử lý, dự án tiến hành huấn luyện nhiều mô hình hồi quy khác nhau:
+### 3.2. Huấn luyện các mô hình
 
-- **Linear Regression**  
-  - R² ≈ 0.6800, RMSE ≈ 7,804,938  
-  - Khả năng giải thích biến động giá còn hạn chế, phù hợp với thực tế là quan hệ giữa biến giải thích và giá xe mang tính **phi tuyến** mạnh.
+Nhóm tiến hành huấn luyện nhiều thuật toán khác nhau nhằm so sánh hiệu năng và chọn mô hình tối ưu, bao gồm:
 
-- **Decision Tree Regressor**  
-  - R² ≈ 0.7956, RMSE ≈ 6,236,952  
-  - Cải thiện đáng kể so với Linear Regression nhưng mô hình đơn cây dễ **overfit** và không ổn định.
+- Linear Regression  
+- Decision Tree Regressor  
+- Random Forest Regressor  
+- Gradient Boosted Trees (GBT)  
+- XGBoost Regressor  
+- LinearSVR (bị loại vì cho R² âm)
 
-- **Random Forest Regressor**  
-  - R² ≈ 0.8049, RMSE ≈ 6,094,309  
-  - Cho kết quả tốt hơn Decision Tree, ổn định hơn nhờ cơ chế **bagging**, giảm phương sai và cải thiện khả năng tổng quát hóa.
+Tất cả các mô hình đều được đánh giá bằng cùng một bộ thước đo:
 
-- **Gradient Boosted Trees (GBT)**  
-  - Cho hiệu năng tốt, nhưng vẫn không vượt được XGBoost trong đánh giá cuối.
+- **RMSE (Root Mean Squared Error)**: sai số dự báo trung bình bình phương căn bậc hai  
+- **R² (hệ số xác định)**: độ phù hợp mô hình (càng cao càng tốt)
 
-- **LinearSVR**  
-  - Bị loại vì cho **R² âm** và RMSE rất cao, cho thấy mô hình hoàn toàn không phù hợp với cấu trúc dữ liệu.
+---
 
-- **XGBoost Regressor**  
-  - Dù notebook không in trực tiếp giá trị cụ thể của R² và RMSE, phần đánh giá tổng hợp và phân tích Feature Importances đều khẳng định:
-    - **R² cao nhất** trong tất cả mô hình.
-    - **RMSE thấp nhất** trong tất cả mô hình.
-  - Điều này phù hợp với đặc điểm của XGBoost, vốn nổi tiếng trong việc xử lý:
-    - Quan hệ **phi tuyến** phức tạp.
-    - Nhiều biến phân loại.
-    - Các tương tác đa chiều giữa đặc trưng.
+### 3.3. Kết quả và so sánh mô hình
 
-Dựa trên toàn bộ kết quả này, có thể kết luận rằng:
+Kết quả lấy trực tiếp từ notebook huấn luyện mô hình:
 
-> **XGBoost Regressor là mô hình vượt trội nhất cho bài toán dự báo giá xe máy cũ.**
+| Mô hình                         | RMSE (VND)  | R²      | Nhận xét                           |
+|---------------------------------|-------------|---------|------------------------------------|
+| Linear Regression               | 7.804.938   | 0,6800  | Yếu, không bắt được phi tuyến      |
+| Decision Tree                   | 6.236.952   | 0,7956  | Khá, nhưng dễ overfit              |
+| Random Forest                   | 6.094.310   | 0,8049  | Tốt, ổn định                       |
+| XGBoost Regressor              | 4.638.266   | 0,8870  | Rất tốt, sai số thấp               |
+| Gradient Boosted Trees (GBT)   | 4.560.313   | 0,8907  | Tốt nhất                           |
+| LinearSVR                      | Rất cao     | Âm      | Loại                               |
 
-Mô hình này không chỉ đạt hiệu năng cao (R² cao – RMSE thấp), mà còn:
-- Ổn định, tổng quát hóa tốt.
-- Cung cấp **Feature Importances**, giúp giải thích được các yếu tố ảnh hưởng đến giá bán xe như:
-  - Số km đã đi,
-  - Số năm sử dụng,
-  - Thương hiệu,
-  - Dòng xe,
-  - Và các đặc trưng liên quan khác.
+**Nhận xét chi tiết:**
+
+- **Linear Regression** có R² chỉ khoảng 0,68 và RMSE gần 8 triệu VND → không phù hợp với dữ liệu có quan hệ phi tuyến mạnh giữa đặc trưng và giá.
+- **Decision Tree** cải thiện mạnh so với Linear Regression nhưng mô hình đơn cây dễ **overfit** và không ổn định trên tập kiểm tra.
+- **Random Forest** khắc phục được phần nào overfitting, cho R² ≈ 0,80 và RMSE ≈ 6,09 triệu, tuy nhiên vẫn chưa phải là lựa chọn tối ưu.
+- **XGBoost Regressor** cho hiệu năng rất tốt với R² ≈ 0,887 và RMSE ≈ 4,64 triệu, phù hợp với dữ liệu có nhiều tương tác và cấu trúc phức tạp.
+- **Gradient Boosted Trees (GBT)** vượt trội nhất trong tất cả các mô hình:
+  - RMSE thấp nhất ≈ **4,56 triệu VND**
+  - R² cao nhất ≈ **0,8907**
+
+→ Đây là mô hình có sai số thấp nhất và mức độ giải thích biến động giá cao nhất trong các mô hình được thử nghiệm.
+
+---
+
+### 3.4. Kết luận lựa chọn mô hình
+
+Dựa trên kết quả đánh giá, **Gradient Boosted Trees (GBT)** được lựa chọn là mô hình tối ưu cho bài toán dự đoán giá xe máy cũ vì các lý do:
+
+- Có **R² cao nhất** (≈ 0,8907) → mô hình giải thích tốt nhất biến động giá thị trường.
+- Có **RMSE thấp nhất** (≈ 4,56 triệu VND) → mức sai số dự báo nhỏ nhất.
+- Khả năng mô hình hóa quan hệ **phi tuyến** và tương tác giữa các biến rất tốt.
+- Ổn định và phù hợp với đặc tính dữ liệu thực tế từ thị trường xe máy cũ.
+
+> 💡 **Kết luận:** Mô hình **Gradient Boosted Trees (GBT)** được chọn làm mô hình cuối cùng vì cho hiệu năng vượt trội nhất, đồng thời phù hợp nhất với dữ liệu và mục tiêu của dự án dự báo giá xe máy cũ.
 """
     )
 
@@ -609,8 +621,10 @@ def main():
     st.title("🛵 Ứng dụng dự đoán giá xe máy cũ")
     st.caption("Big Data & Machine Learning — Demo dự án định giá xe máy cũ")
 
+    # Sidebar điều hướng gọn gàng hơn
+    st.sidebar.title("🔎 Chức năng")
     menu = st.sidebar.radio(
-        "📂 Menu",
+        "",
         [
             "Tên thành viên",
             "Tóm tắt dự án",
