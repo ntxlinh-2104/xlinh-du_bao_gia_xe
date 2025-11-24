@@ -199,7 +199,7 @@ def page_team():
     st.subheader("👥 Tên thành viên")
 
     members = [
-        {"Họ tên": "Giảng viên hướng dẫn: Khuất Thủy Phương"},
+        {"Họ tên": "Khuất Thủy Phương", "Vai trò": "Giảng viên hướng dẫn"},
         {"Họ tên": "Phạm Văn Hải", "Vai trò": "Xây dựng mô hình phát hiện bất thường"},
         {"Họ tên": "Nguyễn Trần Xuân Linh", "Vai trò": "Xây dựng mô hình dự báo giá"},
     ]
@@ -650,4 +650,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
