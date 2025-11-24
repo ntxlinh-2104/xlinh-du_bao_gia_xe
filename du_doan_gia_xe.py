@@ -1,140 +1,168 @@
-# du_doan_gia_xe.py
-# ==========================
-# ỨNG DỤNG STREAMLIT DỰ ĐOÁN GIÁ XE MÁY CŨ
-# - Người mua: Dự đoán giá tham khảo
-# - Người bán: Định giá & phát hiện xe bất thường
-# - Quản trị viên: Duyệt / từ chối tin đăng, gửi lý do
-# ==========================
-
 import streamlit as st
 import pandas as pd
 import numpy as np
+import pickle
 import joblib
-from pathlib import Path
+import re
+import os
+import matplotlib.pyplot as plt
 from datetime import datetime
 
 # ==========================
-# KHỞI TẠO SESSION STATE
+#  CẤU HÌNH GIAO DIỆN
 # ==========================
+st.set_page_config(page_title="Dự đoán giá xe máy", layout="wide")
 
-# Hàng chờ tin đăng bất thường cho quản trị viên
+# ==========================
+#  KHỞI TẠO HÀNG CHỜ CHO QUẢN TRỊ VIÊN
+# ==========================
 if "pending_posts" not in st.session_state:
     st.session_state["pending_posts"] = []
 
 # ==========================
-# HÀM LOAD MODEL & DATA
+#  HÀM LOAD DATA
 # ==========================
-
-@st.cache_resource
-def load_model():
-    """
-    Load pipeline sklearn đã train sẵn.
-    Pipeline này phải nhận DataFrame và .predict trả ra giá (VND).
-
-    👉 TODO: đổi path/file cho đúng với project của bạn:
-        models/motorbike_price_pipeline.pkl
-    """
-    model_path = Path("models/motorbike_price_pipeline.pkl")
-    if not model_path.exists():
-        st.error("❌ Không tìm thấy file models/motorbike_price_pipeline.pkl\n"
-                 "Hãy kiểm tra lại thư mục models và tên file model.")
-        st.stop()
-    model = joblib.load(model_path)
-    return model
+DATA_PATH = "motorbike_cleaned.csv"
 
 
 @st.cache_data
 def load_data():
-    """
-    Load dữ liệu gốc để:
-    - Lấy danh sách brand, model, year, category, engine_capacity,...
-    - Tính thống kê residual theo segment cho người bán & admin.
-
-    👉 TODO: đổi path/file cho đúng với data của bạn:
-        data/motorbike_clean_for_app.csv
-    """
-    data_path = Path("data/motorbike_clean_for_app.csv")
-    if not data_path.exists():
-        st.error("❌ Không tìm thấy file data/motorbike_clean_for_app.csv\n"
-                 "Hãy kiểm tra lại thư mục data và tên file.")
-        st.stop()
-    df = pd.read_csv(data_path)
-
-    # Nếu có year mà chưa có years_used thì tạo thêm
-    if "year" in df.columns and "years_used" not in df.columns:
-        current_year = 2025  # có thể điều chỉnh
-        df["years_used"] = current_year - df["year"]
-
-    # Nếu chưa có engine_capacity thì tạo tạm để app không lỗi
-    if "engine_capacity" not in df.columns:
-        df["engine_capacity"] = np.nan
-
-    return df
+    df_local = None
+    if os.path.exists(DATA_PATH):
+        try:
+            df_local = pd.read_csv(DATA_PATH)
+        except Exception:
+            df_local = None
+    return df_local
 
 
-def compute_segment_stats(model, df):
-    """
-    Từ dữ liệu gốc:
-    - Dự đoán giá bằng model (fair_price)
-    - Tính residual = price - fair_price
-    - Tạo segment = brand__model__year
-    - Tính thống kê theo segment (cho người bán & admin)
-    """
-    df = df.copy()
+df = load_data()
 
-    if "price" not in df.columns:
-        st.error("❌ Dữ liệu không có cột 'price'. "
-                 "Cần có giá thực tế để tính residual & segment stats.")
-        st.stop()
+# ==========================
+#  ẢNH BANNER & BIỂU ĐỒ TOP 5 (dùng ở trang Tóm tắt)
+# ==========================
+def show_banner_and_top5():
+    # Ảnh banner
+    if os.path.exists("xe_may_cu.jpg"):
+        st.image("xe_may_cu.jpg", use_container_width=True)
 
-    # Chọn feature columns: ở đây đơn giản là toàn bộ trừ price
-    feature_cols = [c for c in df.columns if c != "price"]
-    X = df[feature_cols]
+    # Biểu đồ top 5 model
+    if df is not None and "model" in df.columns:
+        st.subheader("📊 Các dòng xe phổ biến nhất trên thị trường (Top 5)")
 
-    # Dự đoán
-    try:
-        df["predict_price"] = model.predict(X)
-    except Exception as e:
-        st.error(f"⚠ Lỗi khi model.predict trên dữ liệu gốc: {e}")
-        st.stop()
-
-    # Residual
-    df["resid"] = df["price"] - df["predict_price"]
-
-    # Đảm bảo có brand/model/year
-    for col in ["brand", "model", "year"]:
-        if col not in df.columns:
-            df[col] = "unknown"
-
-    df["segment"] = (
-        df["brand"].astype(str)
-        + "__"
-        + df["model"].astype(str)
-        + "__"
-        + df["year"].astype(str)
-    )
-
-    # Tính thống kê theo segment
-    seg_stats = (
-        df.groupby("segment")
-        .agg(
-            resid_mean=("resid", "mean"),
-            resid_std=("resid", "std"),
-            p10=("price", lambda x: np.nanpercentile(x, 10)),
-            p90=("price", lambda x: np.nanpercentile(x, 90)),
-            n=("price", "count"),
+        top5 = (
+            df["model"]
+            .dropna()
+            .astype(str)
+            .value_counts()
+            .head(5)
+            .reset_index()
         )
-        .reset_index()
+        top5.columns = ["model", "count"]
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        colors = ["#FF6B6B", "#4ECDC4", "#FFD93D", "#1A73E8", "#9B59B6"]
+
+        ax.bar(top5["model"], top5["count"], color=colors[: len(top5)])
+
+        for i, v in enumerate(top5["count"]):
+            ax.text(
+                i,
+                v,
+                str(v),
+                ha="center",
+                va="bottom",
+                fontsize=10,
+                fontweight="bold",
+            )
+
+        ax.set_xlabel("Dòng xe")
+        ax.set_ylabel("Số lượng tin rao")
+        ax.tick_params(axis="x", rotation=20)
+
+        st.pyplot(fig)
+
+
+# ==========================
+#  HÀM PHỤ TRỢ
+# ==========================
+def to_number_from_str(s):
+    if pd.isna(s):
+        return np.nan
+    if isinstance(s, (int, float)):
+        return float(s)
+    s = str(s)
+    s = re.sub(r"[^\d]", "", s)
+    return float(s) if s else np.nan
+
+
+def format_vnd(x):
+    try:
+        x = float(x)
+        return f"{int(x):,} ₫".replace(",", ".")
+    except Exception:
+        return str(x)
+
+
+# ==========================
+#  LOAD MODEL (DÙNG JOBLIB, FALLBACK PICKLE)
+# ==========================
+@st.cache_resource
+def load_model():
+    """
+    Thử lần lượt:
+    - motobike_price_model.joblib (joblib)
+    - motobike_price_model.pkl (pickle)
+    """
+    candidates = [
+        ("motobike_price_model.joblib", "joblib"),
+        ("motobike_price_model.pkl", "pickle"),
+    ]
+    for path, kind in candidates:
+        if os.path.exists(path):
+            try:
+                if kind == "joblib":
+                    model_local = joblib.load(path)
+                else:
+                    with open(path, "rb") as f:
+                        model_local = pickle.load(f)
+                return model_local
+            except Exception as e:
+                st.error(f"Lỗi khi load model từ {path}: {e}")
+                st.stop()
+
+    st.error(
+        "❌ Không tìm thấy file mô hình: motobike_price_model.joblib hoặc motobike_price_model.pkl.\n"
+        "Hãy kiểm tra lại thư mục và tên file model."
     )
+    st.stop()
 
-    return df, seg_stats
+
+# Lúc train model dùng các feature này:
+expected_features = ["mileage", "years_used", "model", "category"]
+numeric_features = ["mileage", "years_used"]
+categorical_features = ["model", "category"]
+
+# ==========================
+#  DROPDOWN OPTIONS TỪ DATA (DÙNG CHUNG)
+# ==========================
+select_options = {}
+for col in categorical_features:
+    if df is not None and col in df.columns:
+        vals = sorted(df[col].dropna().astype(str).unique().tolist())
+        if col == "model":
+            select_options[col] = ["(Không chọn)"] + vals
+        else:
+            select_options[col] = ["(Không chọn)"] + vals + ["Khác..."]
+    else:
+        select_options[col] = ["(Không chọn)"]
 
 
 # ==========================
-# CÁC TRANG UI
+#  CÁC TRANG TRONG MENU
 # ==========================
 
-def show_team_page():
+def page_team():
     st.subheader("👥 Tên thành viên")
 
     members = [
@@ -142,309 +170,270 @@ def show_team_page():
         {"Họ tên": "Phạm Văn Hải", "Vai trò": "Xây dựng mô hình phát hiện bất thường"},
         {"Họ tên": "Nguyễn Trần Xuân Linh", "Vai trò": "Xây dựng mô hình dự báo giá"},
     ]
-
     st.table(pd.DataFrame(members))
-    st.info("💡 Chỉnh sửa trực tiếp danh sách này trong file du_doan_gia_xe.py nếu cần cập nhật thêm.")
+    st.info("💡 Có thể chỉnh sửa danh sách này trực tiếp trong file du_doan_gia_xe.py.")
 
 
-def show_project_summary_page():
+def page_summary():
     st.subheader("📌 Tóm tắt dự án")
+    show_banner_and_top5()
 
     st.markdown(
         """
 ### Mục tiêu
-- Xây dựng mô hình **dự đoán giá xe máy cũ** dựa trên dữ liệu thực tế từ thị trường.
-- Triển khai ứng dụng web giúp:
-  - 👤 **Người mua**: tham khảo mức giá hợp lý cho chiếc xe quan tâm.
-  - 👤 **Người bán**: đánh giá mức giá đăng bán, phát hiện các tin đăng bất thường.
-  - 🛠 **Quản trị viên**: duyệt / từ chối tin đăng, gửi lý do cho người đăng.
+- Xây dựng mô hình **dự đoán giá xe máy cũ** dựa trên dữ liệu thực tế.
+- Triển khai ứng dụng hỗ trợ:
+  - 👤 **Người mua**: tham khảo mức giá hợp lý.
+  - 👤 **Người bán**: kiểm tra mức giá dự định đăng.
+  - 🛠 **Quản trị viên**: duyệt/từ chối các tin đăng bất thường.
 
-### Nguồn dữ liệu
-- Dữ liệu thu thập từ các tin đăng bán xe máy cũ trên nền tảng trực tuyến.
-- Đã làm sạch:
-  - Loại bỏ các bản ghi thiếu giá, thiếu hãng xe, thiếu năm sản xuất,...
-  - Chuẩn hóa đơn vị giá (VND), chuyển đổi format từ "tr" sang số.
-  - Chuẩn hóa số km đã đi, năm sản xuất, phân khối xe,...
-
-### Biến đầu vào tiêu biểu
-- Hãng xe (**brand**)
-- Dòng xe (**model** / **model_grouped**)
-- Năm sản xuất (**year**) và số năm sử dụng (**years_used**)
-- Số km đã đi (**mileage**)
-- Phân khối (**engine_capacity**)
-- Phân khúc xe (**category**), nếu có.
+### Dữ liệu
+- File dữ liệu sử dụng trong ứng dụng: `motorbike_cleaned.csv`.
+- Các biến chính:
+  - `mileage` – số km đã đi.
+  - `years_used` – số năm sử dụng.
+  - `model` – dòng xe.
+  - `category` – loại xe.
 
 ### Mô hình
-- Sử dụng pipeline Machine Learning (ví dụ: Random Forest, Gradient Boosting, XGBoost).
-- Đánh giá hiệu quả bằng RMSE, MAE, R².
-- Đóng gói toàn bộ quy trình vào một pipeline duy nhất để triển khai trên Streamlit.
+- Mô hình Machine Learning được train sẵn (lưu dưới dạng `motobike_price_model.joblib` / `.pkl`).
+- Đầu vào: `mileage`, `years_used`, `model`, `category`.
+- Đầu ra: **giá dự đoán** (VND).
 """
     )
 
 
-def show_model_page():
+def page_model():
     st.subheader("🧠 Xây dựng mô hình")
 
     st.markdown(
         """
 #### (1) Tiền xử lý dữ liệu
-- Loại bỏ outlier nặng, bản ghi lỗi / thiếu thông tin quan trọng.
-- Chuẩn hóa:
-  - Giá: đồng bộ về đơn vị VND.
-  - Năm sản xuất → số năm sử dụng: `years_used = current_year - year`.
-  - Số km đã đi, phân khối.
-- Gom nhóm các model hiếm vào nhóm 'other' để tránh sparsity.
+- Làm sạch:
+  - Loại bỏ các bản ghi thiếu thông tin quan trọng (giá, model, mileage,...).
+  - Chuẩn hóa định dạng số cho cột `mileage`, `price`,...
+- Tạo biến:
+  - `years_used = năm hiện tại - year_sx`.
+  - Chuẩn hóa `model`, `category`.
 
-#### (2) Xây dựng pipeline
-- Bước encoding:
-  - One-Hot Encoding (OHE) cho các biến phân loại: brand, model, category,...
-- Bước scale (nếu cần):
-  - Chuẩn hóa các biến số: mileage, years_used, engine_capacity.
-- Bước mô hình:
-  - Sử dụng thuật toán hồi quy phi tuyến (Random Forest / Gradient Boosting / XGBoost).
-- Lưu pipeline hoàn chỉnh bằng `joblib`:
-  - `models/motorbike_price_pipeline.pkl`
+#### (2) Mô hình
+- Chọn tập biến đầu vào: `mileage`, `years_used`, `model`, `category`.
+- Mã hóa biến phân loại bằng kỹ thuật phù hợp (ví dụ: One-Hot Encoding).
+- Huấn luyện mô hình hồi quy (sklearn) để dự báo giá.
+- Lưu mô hình bằng:
+  - `joblib.dump(model, "motobike_price_model.joblib")`.
 
-#### (3) Đánh giá mô hình
-- Chia train/test (ví dụ 80/20).
-- Chỉ số đánh giá:
-  - RMSE (Root Mean Squared Error)
-  - MAE (Mean Absolute Error)
-  - R² (Coefficient of Determination)
-- So sánh với các mô hình baseline:
-  - Linear Regression, Decision Tree,...
+#### (3) Tích hợp vào Streamlit
+- Ứng dụng đọc model qua `joblib.load`.
+- Người dùng nhập thông tin → tạo DataFrame với đúng tên cột → `model.predict(...)`.
+- Kết quả được hiển thị dưới dạng **metric** và kèm theo đánh giá mức độ hợp lý.
 """
     )
 
 
-def show_buyer_page(model, df, seg_stats):
-    st.subheader("💰 Dự đoán giá xe (cho người mua)")
+def page_buyer():
+    st.markdown("## 🚀 Dự đoán giá xe máy – Người mua")
+    st.subheader("📘 Nhập thông tin xe để dự đoán")
 
-    brands = sorted(df["brand"].dropna().unique().tolist()) if "brand" in df.columns else []
-    models = sorted(df["model"].dropna().unique().tolist()) if "model" in df.columns else []
-    years = sorted(df["year"].dropna().unique().tolist()) if "year" in df.columns else []
+    model = load_model()
 
-    col1, col2 = st.columns(2)
+    with st.form("form_du_doan"):
+        # --- Numeric: mileage, years_used, engine_capacity ---
+        c1, c2, c3 = st.columns(3)
+        mileage = c1.text_input("Số km đã đi:", "15000")
+        years_used = c2.text_input("Số năm sử dụng:", "2")
+        engine_capacity = c3.text_input("Phân khối (cc):", "125")  # chưa đưa vào model
 
-    with col1:
-        brand = st.selectbox("Hãng xe (brand):", options=brands)
-        model_name = st.selectbox(
-            "Dòng xe (model):",
-            options=models,
-            help="Có thể gõ để lọc nhanh model."
-        )
-        year = st.selectbox("Năm sản xuất (year):", options=years)
+        # --- Categorical: model ---
+        model_sel = st.selectbox("Dòng xe (model):", select_options["model"])
+        model_free = st.text_input("Hoặc tự nhập dòng xe:", "")
 
-    with col2:
-        years_used_default = float(2025 - int(year)) if year is not None else 5.0
-        years_used = st.number_input(
-            "Số năm sử dụng (years_used):",
-            min_value=0.0,
-            max_value=30.0,
-            value=years_used_default,
-            step=0.5
-        )
-        mileage = st.number_input(
-            "Số km đã đi (mileage):",
-            min_value=0.0,
-            value=30000.0,
-            step=1000.0
-        )
-        engine_capacity = st.number_input(
-            "Phân khối (engine_capacity, cc):",
-            min_value=50.0,
-            max_value=1000.0,
-            value=125.0,
-            step=25.0
-        )
+        if model_free.strip():
+            model_input = model_free.strip()
+        elif model_sel == "(Không chọn)":
+            model_input = np.nan
+        else:
+            model_input = model_sel
 
-    category = None
-    if "category" in df.columns:
-        category_list = sorted(df["category"].dropna().unique().tolist())
-        category = st.selectbox("Phân khúc xe (category):", options=category_list)
+        # --- Categorical: category ---
+        category_sel = st.selectbox("Loại xe (category):", select_options["category"])
+        if category_sel == "Khác...":
+            category_input = st.text_input("Nhập loại xe khác:")
+        elif category_sel == "(Không chọn)":
+            category_input = np.nan
+        else:
+            category_input = category_sel
 
-    if st.button("🔍 Dự đoán giá tham khảo", type="primary"):
-        input_dict = {
-            "brand": brand,
-            "model": model_name,
-            "year": year,
-            "years_used": years_used,
-            "mileage": mileage,
-            "engine_capacity": engine_capacity,
-        }
-        if category is not None:
-            input_dict["category"] = category
+        submit_buy = st.form_submit_button("🔍 Dự đoán giá")
 
-        input_df = pd.DataFrame([input_dict])
+    if submit_buy:
+        X_buy = pd.DataFrame(
+            [
+                {
+                    "mileage": to_number_from_str(mileage),
+                    "years_used": to_number_from_str(years_used),
+                    "model": model_input,
+                    "category": category_input,
+                }
+            ]
+        ).reindex(columns=expected_features)
+
+        st.write("### Dữ liệu gửi vào mô hình (người mua)")
+        st.dataframe(X_buy)
 
         try:
-            y_pred = model.predict(input_df)[0]
-            st.success(f"💡 Giá dự đoán tham khảo: **{y_pred:,.0f} VND**")
+            y_pred = float(model.predict(X_buy)[0])
+            st.success("🎯 Dự đoán thành công!")
+            st.metric("Giá dự đoán (tham khảo cho người mua)", format_vnd(y_pred))
         except Exception as e:
-            st.error(f"Không dự đoán được. Kiểm tra lại tên cột & pipeline. Lỗi: {e}")
+            st.error("Lỗi khi dự đoán (người mua).")
+            st.exception(e)
 
 
-def show_seller_page(model, df, seg_stats):
-    st.subheader("📉 Định giá & phát hiện xe bất thường (cho người bán)")
+def page_seller():
+    st.markdown("## 🧭 Phát hiện giá đăng bán bất thường – Người bán")
+    st.subheader("📦 Kiểm tra mức giá bạn định đăng")
 
-    brands = sorted(df["brand"].dropna().unique().tolist()) if "brand" in df.columns else []
-    models = sorted(df["model"].dropna().unique().tolist()) if "model" in df.columns else []
-    years = sorted(df["year"].dropna().unique().tolist()) if "year" in df.columns else []
+    model = load_model()
 
-    col1, col2 = st.columns(2)
+    with st.form("form_phat_hien"):
+        # --- Numeric ---
+        c1s, c2s, c3s = st.columns(3)
+        mileage_s = c1s.text_input("Số km đã đi:", "15000", key="seller_mileage")
+        years_used_s = c2s.text_input("Số năm sử dụng:", "2", key="seller_years")
+        engine_capacity_s = c3s.text_input(
+            "Phân khối (cc):", "125", key="seller_cc"
+        )  # chỉ hiển thị
 
-    with col1:
-        brand = st.selectbox("Hãng xe (brand):", options=brands, key="seller_brand")
-        model_name = st.selectbox(
-            "Dòng xe (model):",
-            options=models,
-            key="seller_model",
-            help="Có thể gõ để lọc nhanh model."
+        # --- Categorical: model ---
+        model_sel_s = st.selectbox(
+            "Dòng xe (model):", select_options["model"], key="seller_model_sel"
         )
-        year = st.selectbox("Năm sản xuất (year):", options=years, key="seller_year")
-
-    with col2:
-        mileage = st.number_input(
-            "Số km đã đi (mileage):",
-            min_value=0.0,
-            value=30000.0,
-            step=1000.0,
-            key="seller_mileage"
-        )
-        engine_capacity = st.number_input(
-            "Phân khối (engine_capacity, cc):",
-            min_value=50.0,
-            max_value=1000.0,
-            value=125.0,
-            step=25.0,
-            key="seller_engine"
-        )
-        ask_price = st.number_input(
-            "Giá muốn đăng bán (VND):",
-            min_value=0.0,
-            value=25000000.0,
-            step=500000.0,
-            key="seller_price"
+        model_free_s = st.text_input(
+            "Hoặc tự nhập dòng xe (người bán):", "", key="seller_model_free"
         )
 
-    years_used = float(2025 - int(year)) if year is not None else 5.0
+        if model_free_s.strip():
+            model_input_s = model_free_s.strip()
+        elif model_sel_s == "(Không chọn)":
+            model_input_s = np.nan
+        else:
+            model_input_s = model_sel_s
 
-    category = None
-    if "category" in df.columns:
-        category_list = sorted(df["category"].dropna().unique().tolist())
-        category = st.selectbox("Phân khúc xe (category):", options=category_list, key="seller_category")
+        # --- Categorical: category ---
+        category_sel_s = st.selectbox(
+            "Loại xe (category):", select_options["category"], key="seller_cat_sel"
+        )
+        if category_sel_s == "Khác...":
+            category_input_s = st.text_input(
+                "Nhập loại xe khác:", key="seller_cat_other"
+            )
+        elif category_sel_s == "(Không chọn)":
+            category_input_s = np.nan
+        else:
+            category_input_s = category_sel_s
 
-    if st.button("📌 Đánh giá mức giá & phát hiện bất thường", type="primary"):
-        input_dict = {
-            "brand": brand,
-            "model": model_name,
-            "year": year,
-            "years_used": years_used,
-            "mileage": mileage,
-            "engine_capacity": engine_capacity,
-        }
-        if category is not None:
-            input_dict["category"] = category
+        price_s = st.text_input(
+            "Giá bạn muốn đăng (VND):", "20000000", key="seller_price"
+        )
 
-        input_df = pd.DataFrame([input_dict])
+        submit_sell = st.form_submit_button("🧮 Kiểm tra giá có hợp lý không")
 
-        # Dự đoán giá hợp lý
-        try:
-            fair_price = model.predict(input_df)[0]
-        except Exception as e:
-            st.error(f"Lỗi khi dự đoán giá: {e}")
+    if submit_sell:
+        X_sell = pd.DataFrame(
+            [
+                {
+                    "mileage": to_number_from_str(mileage_s),
+                    "years_used": to_number_from_str(years_used_s),
+                    "model": model_input_s,
+                    "category": category_input_s,
+                }
+            ]
+        ).reindex(columns=expected_features)
+
+        seller_price = to_number_from_str(price_s)
+
+        st.write("### Dữ liệu gửi vào mô hình (người bán)")
+        st.dataframe(X_sell)
+
+        if np.isnan(seller_price):
+            st.error("Vui lòng nhập 'Giá bạn muốn đăng' là số hợp lệ.")
             return
 
-        segment = f"{brand}__{model_name}__{year}"
-        seg_row = seg_stats[seg_stats["segment"] == segment]
+        try:
+            fair_price = float(model.predict(X_sell)[0])
 
-        st.write("---")
-        st.write(f"**Segment:** `{segment}`")
+            st.write("### Kết quả đánh giá giá đăng bán")
+            st.write(f"- Giá hợp lý theo mô hình: **{format_vnd(fair_price)}**")
+            st.write(f"- Giá bạn muốn đăng: **{format_vnd(seller_price)}**")
 
-        level = "normal"  # mặc định
+            if fair_price <= 0:
+                st.warning(
+                    "Giá dự đoán không hợp lệ (<=0). Kiểm tra lại dữ liệu đầu vào hoặc mô hình."
+                )
+                return
 
-        if seg_row.empty:
-            st.warning("⚠ Chưa có đủ dữ liệu lịch sử cho segment này. So sánh dựa trên giá dự đoán.")
+            ratio = seller_price / fair_price
+            low_ok = 0.9 * fair_price
+            high_ok = 1.1 * fair_price
 
-            resid = ask_price - fair_price
-            st.write(f"- Giá dự đoán: **{fair_price:,.0f} VND**")
-            st.write(f"- Giá đăng bán: **{ask_price:,.0f} VND**")
-            st.write(f"- Chênh lệch (bán - dự đoán): **{resid:,.0f} VND**")
+            level = "normal"  # mức độ bất thường
 
-            if resid > 5_000_000:
-                st.error("🚩 Giá đăng bán **cao hơn khá nhiều** so với dự đoán.")
-                level = "high"
-            elif resid < -5_000_000:
-                st.info("✅ Giá đăng bán **thấp hơn dự đoán**, có thể là deal tốt (hoặc xe có vấn đề).")
-                level = "low"
+            if ratio < 0.7:
+                st.error(
+                    "🚨 Giá **quá rẻ** so với mặt bằng dự đoán → có thể là tin bất thường hoặc bạn đang bán lỗ rất mạnh."
+                )
+                level = "too_low"
+            elif 0.7 <= ratio < 0.9:
+                st.warning(
+                    "⚠️ Giá **thấp hơn thị trường**. Người mua rất có lợi, bạn nên cân nhắc lại mức giá."
+                )
+            elif 0.9 <= ratio <= 1.1:
+                st.success("✅ Giá **hợp lý**, nằm trong khoảng thị trường dự đoán.")
+            elif 1.1 < ratio <= 1.3:
+                st.info(
+                    "ℹ️ Giá **hơi cao hơn** so với thị trường. Người mua có thể còn mặc cả."
+                )
             else:
-                st.success("👍 Giá đăng bán nằm gần mức dự đoán, khá hợp lý.")
-        else:
-            row = seg_row.iloc[0]
-            resid_mean = row["resid_mean"]
-            resid_std = row["resid_std"]
-            p10 = row["p10"]
-            p90 = row["p90"]
-            n = int(row["n"])
+                st.error(
+                    "🚨 Giá **quá cao** so với thị trường → dễ bị xem là tin đăng không hấp dẫn hoặc bất thường."
+                )
+                level = "too_high"
 
-            resid = ask_price - fair_price
-            z_score = (resid - resid_mean) / resid_std if resid_std and not np.isnan(resid_std) else np.nan
+            st.write(
+                f"👉 Khoảng giá tham khảo nên đăng: **{format_vnd(low_ok)} – {format_vnd(high_ok)}**"
+            )
 
-            st.write(f"- Số mẫu lịch sử trong segment: **{n}**")
-            st.write(f"- Giá dự đoán: **{fair_price:,.0f} VND**")
-            st.write(f"- Giá đăng bán: **{ask_price:,.0f} VND**")
-            st.write(f"- Chênh lệch (bán - dự đoán): **{resid:,.0f} VND**")
-            st.write(f"- Khoảng giá lịch sử (p10–p90): **{p10:,.0f} – {p90:,.0f} VND**")
+            # ====== GỬI CHO QUẢN TRỊ VIÊN NẾU BẤT THƯỜNG MẠNH ======
+            if level in ["too_low", "too_high"]:
+                st.write("---")
+                st.info(
+                    "Tin này có dấu hiệu **bất thường mạnh** về giá. "
+                    "Bạn có thể gửi cho **quản trị viên** để xem xét duyệt/từ chối."
+                )
 
-            msg = ""
+                if st.button("📤 Gửi tin này cho quản trị viên duyệt"):
+                    pending_post = {
+                        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "mileage": float(to_number_from_str(mileage_s)),
+                        "years_used": float(to_number_from_str(years_used_s)),
+                        "model": str(model_input_s),
+                        "category": str(category_input_s),
+                        "ask_price": float(seller_price),
+                        "fair_price": float(fair_price),
+                        "level": level,
+                    }
+                    st.session_state["pending_posts"].append(pending_post)
+                    st.success(
+                        "✅ Đã đưa tin này vào hàng chờ cho quản trị viên duyệt (xem ở mục 'Quản trị viên')."
+                    )
 
-            if ask_price < p10:
-                msg += "🚩 Giá đăng **thấp hơn nhiều** so với mức thường thấy trong lịch sử.\n\n"
-                level = "low"
-            elif ask_price > p90:
-                msg += "🚩 Giá đăng **cao hơn nhiều** so với mức thường thấy trong lịch sử.\n\n"
-                level = "high"
-            else:
-                msg += "✅ Giá đăng nằm trong khoảng phổ biến (p10–p90).\n\n"
-
-            if not np.isnan(z_score):
-                msg += f"- Z-score của residual: **{z_score:.2f}**\n"
-                if abs(z_score) > 2:
-                    msg += "👉 Residual nằm ngoài ±2σ → **xe này được xem là bất thường** so với mô hình.\n"
-                    level = "anomaly"
-
-            if level == "anomaly":
-                st.error(msg)
-            elif level in ["low", "high"]:
-                st.warning(msg)
-            else:
-                st.success(msg)
-
-        # Nếu có dấu hiệu bất thường → cho phép gửi tin cho quản trị viên
-        if level in ["low", "high", "anomaly"]:
-            st.write("---")
-            st.info("Tin này có dấu hiệu khác thường. Có thể gửi cho **quản trị viên** để duyệt.")
-
-            if st.button("📤 Gửi tin này cho quản trị viên duyệt"):
-                pending_post = {
-                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "brand": brand,
-                    "model": model_name,
-                    "year": int(year),
-                    "mileage": float(mileage),
-                    "engine_capacity": float(engine_capacity),
-                    "category": category,
-                    "ask_price": float(ask_price),
-                    "fair_price": float(fair_price),
-                    "level": level,
-                    "segment": segment,
-                }
-
-                st.session_state["pending_posts"].append(pending_post)
-                st.success("✅ Đã đưa tin này vào hàng chờ cho quản trị viên duyệt.")
+        except Exception as e:
+            st.error("Lỗi khi đánh giá giá đăng bán.")
+            st.exception(e)
 
 
-def show_admin_page():
+def page_admin():
     st.subheader("🛠 Khu vực quản trị viên")
 
     pending = st.session_state.get("pending_posts", [])
@@ -457,29 +446,28 @@ def show_admin_page():
 
     df_pending = pd.DataFrame(pending)
     st.dataframe(
-        df_pending[["time", "segment", "ask_price", "fair_price", "level"]],
-        use_container_width=True
+        df_pending[
+            ["time", "model", "category", "ask_price", "fair_price", "level"]
+        ],
+        use_container_width=True,
     )
 
-    # Chọn 1 tin để xử lý
     idx = st.selectbox(
         "Chọn tin để xử lý:",
         options=list(range(len(pending))),
-        format_func=lambda i: f"{i+1} - {pending[i]['segment']} - {pending[i]['ask_price']:,.0f} VND"
+        format_func=lambda i: f"{i+1} - {pending[i]['model']} - {format_vnd(pending[i]['ask_price'])}",
     )
 
     post = pending[idx]
 
     st.markdown("### 🔎 Chi tiết tin đăng")
     st.write(f"- Thời gian gửi: **{post['time']}**")
-    st.write(f"- Segment: **{post['segment']}**")
+    st.write(f"- Model: **{post['model']}**")
+    st.write(f"- Category: **{post['category']}**")
     st.write(f"- Mức độ: **{post['level']}**")
-    st.write(f"- Giá đăng bán: **{post['ask_price']:,.0f} VND**")
-    st.write(f"- Giá dự đoán: **{post['fair_price']:,.0f} VND**")
-    st.write(f"- Mileage: **{post['mileage']:,.0f} km**")
-    st.write(f"- Engine: **{post['engine_capacity']:.0f} cc**")
-    if post.get("category") is not None:
-        st.write(f"- Phân khúc: **{post['category']}**")
+    st.write(f"- Giá đăng bán: **{format_vnd(post['ask_price'])}**")
+    st.write(f"- Giá dự đoán: **{format_vnd(post['fair_price'])}**")
+    st.write(f"- Số km: **{post['mileage']:.0f} km**, Số năm sử dụng: **{post['years_used']:.1f} năm**")
 
     st.write("---")
     decision = st.radio("Quyết định của quản trị viên:", ["Duyệt tin", "Từ chối tin"])
@@ -496,8 +484,8 @@ def show_admin_page():
                 "Giá quá cao so với mặt bằng thị trường",
                 "Giá quá thấp bất thường, có thể nhập sai hoặc xe có vấn đề",
                 "Thông tin xe không rõ ràng / thiếu minh bạch",
-                "Tự nhập lý do khác"
-            ]
+                "Tự nhập lý do khác",
+            ],
         )
 
         custom_reason = ""
@@ -513,11 +501,10 @@ def show_admin_page():
             else:
                 final_reason = reason_type
 
-            # Nội dung giả định gửi cho người đăng tin
             msg = f"""
 Kính gửi người đăng tin,
 
-Tin đăng xe **{post['segment']}** với mức giá **{post['ask_price']:,.0f} VND** đã bị từ chối vì lý do:
+Tin đăng xe **{post['model']} ({post['category']})** với mức giá **{format_vnd(post['ask_price'])}** đã bị từ chối vì lý do:
 
 > {final_reason}
 
@@ -529,25 +516,16 @@ Bộ phận kiểm duyệt.
             st.success("Tin đã bị từ chối. Nội dung phản hồi dự kiến gửi cho người đăng:")
             st.code(msg, language="markdown")
 
-            # Xoá khỏi hàng chờ
             st.session_state["pending_posts"].pop(idx)
 
 
 # ==========================
-# MAIN APP
+#  MAIN
 # ==========================
-
 def main():
-    st.set_page_config(
-        page_title="Dự đoán giá xe máy cũ",
-        page_icon="🛵",
-        layout="wide",
-    )
-
     st.title("🛵 Ứng dụng dự đoán giá xe máy cũ")
     st.caption("Big Data & Machine Learning — Demo dự án định giá xe máy cũ")
 
-    # Sidebar menu
     menu = st.sidebar.radio(
         "📂 Menu",
         [
@@ -560,27 +538,18 @@ def main():
         ],
     )
 
-    # Chỉ load model & data khi cần
-    if menu in [
-        "Dự đoán giá (người mua)",
-        "Định giá & phát hiện xe bất thường (người bán)",
-    ]:
-        model = load_model()
-        df = load_data()
-        df_with_pred, seg_stats = compute_segment_stats(model, df)
-
     if menu == "Tên thành viên":
-        show_team_page()
+        page_team()
     elif menu == "Tóm tắt dự án":
-        show_project_summary_page()
+        page_summary()
     elif menu == "Xây dựng mô hình":
-        show_model_page()
+        page_model()
     elif menu == "Dự đoán giá (người mua)":
-        show_buyer_page(model, df_with_pred, seg_stats)
+        page_buyer()
     elif menu == "Định giá & phát hiện xe bất thường (người bán)":
-        show_seller_page(model, df_with_pred, seg_stats)
+        page_seller()
     elif menu == "Quản trị viên":
-        show_admin_page()
+        page_admin()
 
 
 if __name__ == "__main__":
