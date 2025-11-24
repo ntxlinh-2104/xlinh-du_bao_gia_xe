@@ -568,7 +568,7 @@ def page_admin():
 
     if decision == "Duyệt tin":
         if st.button("✅ Xác nhận duyệt tin"):
-            st.success("Tin đã được duyệt. (Demo: chỉ xoá khỏi hàng chờ trong session)")
+            st.success("Tin đã được duyệt.")
             st.session_state["pending_posts"].pop(idx)
 
     else:
@@ -650,5 +650,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
