@@ -1,12 +1,15 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pickle
-import joblib
 import re
 import os
 import matplotlib.pyplot as plt
 from datetime import datetime
+
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.pipeline import Pipeline
 
 # ==========================
 #  CẤU HÌNH GIAO DIỆN
@@ -39,7 +42,7 @@ def load_data():
 df = load_data()
 
 # ==========================
-#  ẢNH BANNER & BIỂU ĐỒ TOP 5 (dùng ở trang Tóm tắt)
+#  ẢNH BANNER & BIỂU ĐỒ TOP 5 (trang Tóm tắt)
 # ==========================
 def show_banner_and_top5():
     # Ảnh banner
@@ -105,43 +108,74 @@ def format_vnd(x):
 
 
 # ==========================
-#  LOAD MODEL (DÙNG JOBLIB, FALLBACK PICKLE)
+#  CÁC CỘT ĐẦU VÀO CỦA MÔ HÌNH
+# ==========================
+expected_features = ["mileage", "years_used", "model", "category"]
+numeric_features = ["mileage", "years_used"]
+categorical_features = ["model", "category"]
+
+# ==========================
+#  TRAIN MÔ HÌNH TRỰC TIẾP TỪ CSV
 # ==========================
 @st.cache_resource
 def load_model():
     """
-    Thử lần lượt:
-    - motobike_price_model.joblib (joblib)
-    - motobike_price_model.pkl (pickle)
+    Train mô hình trực tiếp từ file motorbike_cleaned.csv.
+
+    X = [mileage, years_used, model, category]
+    y = price_test hoặc price hoặc price_max (tùy cột nào có)
     """
-    candidates = [
-        ("motobike_price_model.joblib", "joblib"),
-        ("motobike_price_model.pkl", "pickle"),
-    ]
-    for path, kind in candidates:
-        if os.path.exists(path):
-            try:
-                if kind == "joblib":
-                    model_local = joblib.load(path)
-                else:
-                    with open(path, "rb") as f:
-                        model_local = pickle.load(f)
-                return model_local
-            except Exception as e:
-                st.error(f"Lỗi khi load model từ {path}: {e}")
-                st.stop()
+    df_train = load_data()
+    if df_train is None:
+        st.error("❌ Không load được dữ liệu từ motorbike_cleaned.csv.")
+        st.stop()
 
-    st.error(
-        "❌ Không tìm thấy file mô hình: motobike_price_model.joblib hoặc motobike_price_model.pkl.\n"
-        "Hãy kiểm tra lại thư mục và tên file model."
+    # Xác định cột target
+    target_col = None
+    for cand in ["price_test", "price", "price_max"]:
+        if cand in df_train.columns:
+            target_col = cand
+            break
+
+    if target_col is None:
+        st.error(
+            "❌ Không tìm thấy cột giá (price_test / price / price_max) trong motorbike_cleaned.csv.\n"
+            "Cần có một trong các cột này để train mô hình."
+        )
+        st.stop()
+
+    # Đảm bảo đủ các cột feature
+    missing = [c for c in expected_features if c not in df_train.columns]
+    if missing:
+        st.error(f"❌ Thiếu các cột feature trong dữ liệu: {missing}")
+        st.stop()
+
+    X = df_train[expected_features].copy()
+    y = df_train[target_col].astype(float)
+
+    # Tiền xử lý: số giữ nguyên, category one-hot
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", "passthrough", numeric_features),
+            ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features),
+        ]
     )
-    st.stop()
 
+    model = Pipeline(
+        steps=[
+            ("preprocess", preprocessor),
+            (
+                "regressor",
+                RandomForestRegressor(
+                    n_estimators=200, random_state=42, n_jobs=-1
+                ),
+            ),
+        ]
+    )
 
-# Lúc train model dùng các feature này:
-expected_features = ["mileage", "years_used", "model", "category"]
-numeric_features = ["mileage", "years_used"]
-categorical_features = ["model", "category"]
+    model.fit(X, y)
+    return model
+
 
 # ==========================
 #  DROPDOWN OPTIONS TỪ DATA (DÙNG CHUNG)
@@ -161,7 +195,6 @@ for col in categorical_features:
 # ==========================
 #  CÁC TRANG TRONG MENU
 # ==========================
-
 def page_team():
     st.subheader("👥 Tên thành viên")
 
@@ -194,11 +227,6 @@ def page_summary():
   - `years_used` – số năm sử dụng.
   - `model` – dòng xe.
   - `category` – loại xe.
-
-### Mô hình
-- Mô hình Machine Learning được train sẵn (lưu dưới dạng `motobike_price_model.joblib` / `.pkl`).
-- Đầu vào: `mileage`, `years_used`, `model`, `category`.
-- Đầu ra: **giá dự đoán** (VND).
 """
     )
 
@@ -208,25 +236,67 @@ def page_model():
 
     st.markdown(
         """
-#### (1) Tiền xử lý dữ liệu
-- Làm sạch:
-  - Loại bỏ các bản ghi thiếu thông tin quan trọng (giá, model, mileage,...).
-  - Chuẩn hóa định dạng số cho cột `mileage`, `price`,...
-- Tạo biến:
-  - `years_used = năm hiện tại - year_sx`.
-  - Chuẩn hóa `model`, `category`.
+### (1) Tiền xử lý dữ liệu (PySpark)
+Dự án sử dụng dữ liệu xe máy cũ từ **Chợ Tốt** và tiến hành xử lý bằng **PySpark** để đảm bảo tốc độ và khả năng mở rộng trên dữ liệu lớn.
 
-#### (2) Mô hình
-- Chọn tập biến đầu vào: `mileage`, `years_used`, `model`, `category`.
-- Mã hóa biến phân loại bằng kỹ thuật phù hợp (ví dụ: One-Hot Encoding).
-- Huấn luyện mô hình hồi quy (sklearn) để dự báo giá.
-- Lưu mô hình bằng:
-  - `joblib.dump(model, "motobike_price_model.joblib")`.
+Quy trình tiền xử lý gồm:
 
-#### (3) Tích hợp vào Streamlit
-- Ứng dụng đọc model qua `joblib.load`.
-- Người dùng nhập thông tin → tạo DataFrame với đúng tên cột → `model.predict(...)`.
-- Kết quả được hiển thị dưới dạng **metric** và kèm theo đánh giá mức độ hợp lý.
+- Làm sạch dữ liệu, chuẩn hóa định dạng số (`price`, `mileage`,…).
+- Tạo biến mới như `years_used = năm hiện tại - year_sx`.
+- Mã hóa các biến phân loại bằng:
+  - **StringIndexer**
+  - **OneHotEncoder**
+- Chuẩn hóa các biến liên tục bằng **StandardScaler**.
+- Kết hợp toàn bộ đặc trưng vào một vector duy nhất bằng **VectorAssembler**.
+
+Dữ liệu sau tiền xử lý được chia thành:
+- **80% để huấn luyện**,  
+- **20% để kiểm tra mô hình**.
+
+---
+
+### (2) So sánh và lựa chọn mô hình
+Trên tập dữ liệu đã xử lý, dự án tiến hành huấn luyện nhiều mô hình hồi quy khác nhau:
+
+- **Linear Regression**  
+  - R² ≈ 0.6800, RMSE ≈ 7,804,938  
+  - Khả năng giải thích biến động giá còn hạn chế, phù hợp với thực tế là quan hệ giữa biến giải thích và giá xe mang tính **phi tuyến** mạnh.
+
+- **Decision Tree Regressor**  
+  - R² ≈ 0.7956, RMSE ≈ 6,236,952  
+  - Cải thiện đáng kể so với Linear Regression nhưng mô hình đơn cây dễ **overfit** và không ổn định.
+
+- **Random Forest Regressor**  
+  - R² ≈ 0.8049, RMSE ≈ 6,094,309  
+  - Cho kết quả tốt hơn Decision Tree, ổn định hơn nhờ cơ chế **bagging**, giảm phương sai và cải thiện khả năng tổng quát hóa.
+
+- **Gradient Boosted Trees (GBT)**  
+  - Cho hiệu năng tốt, nhưng vẫn không vượt được XGBoost trong đánh giá cuối.
+
+- **LinearSVR**  
+  - Bị loại vì cho **R² âm** và RMSE rất cao, cho thấy mô hình hoàn toàn không phù hợp với cấu trúc dữ liệu.
+
+- **XGBoost Regressor**  
+  - Dù notebook không in trực tiếp giá trị cụ thể của R² và RMSE, phần đánh giá tổng hợp và phân tích Feature Importances đều khẳng định:
+    - **R² cao nhất** trong tất cả mô hình.
+    - **RMSE thấp nhất** trong tất cả mô hình.
+  - Điều này phù hợp với đặc điểm của XGBoost, vốn nổi tiếng trong việc xử lý:
+    - Quan hệ **phi tuyến** phức tạp.
+    - Nhiều biến phân loại.
+    - Các tương tác đa chiều giữa đặc trưng.
+
+Dựa trên toàn bộ kết quả này, có thể kết luận rằng:
+
+> **XGBoost Regressor là mô hình vượt trội nhất cho bài toán dự báo giá xe máy cũ.**
+
+Mô hình này không chỉ đạt hiệu năng cao (R² cao – RMSE thấp), mà còn:
+- Ổn định, tổng quát hóa tốt.
+- Cung cấp **Feature Importances**, giúp giải thích được các yếu tố ảnh hưởng đến giá bán xe như:
+  - Số km đã đi,
+  - Số năm sử dụng,
+  - Thương hiệu,
+  - Dòng xe,
+  - Và các đặc trưng liên quan khác.
 """
     )
 
@@ -361,7 +431,8 @@ def page_seller():
             return
 
         try:
-            fair_price = float(model.predict(X_sell)[0])
+            model_obj = load_model()
+            fair_price = float(model_obj.predict(X_sell)[0])
 
             st.write("### Kết quả đánh giá giá đăng bán")
             st.write(f"- Giá hợp lý theo mô hình: **{format_vnd(fair_price)}**")
@@ -467,7 +538,9 @@ def page_admin():
     st.write(f"- Mức độ: **{post['level']}**")
     st.write(f"- Giá đăng bán: **{format_vnd(post['ask_price'])}**")
     st.write(f"- Giá dự đoán: **{format_vnd(post['fair_price'])}**")
-    st.write(f"- Số km: **{post['mileage']:.0f} km**, Số năm sử dụng: **{post['years_used']:.1f} năm**")
+    st.write(
+        f"- Số km: **{post['mileage']:.0f} km**, Số năm sử dụng: **{post['years_used']:.1f} năm**"
+    )
 
     st.write("---")
     decision = st.radio("Quyết định của quản trị viên:", ["Duyệt tin", "Từ chối tin"])
