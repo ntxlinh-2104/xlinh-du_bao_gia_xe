@@ -204,8 +204,7 @@ def page_team():
         {"Họ tên": "Nguyễn Trần Xuân Linh", "Vai trò": "Xây dựng mô hình dự báo giá"},
     ]
     st.table(pd.DataFrame(members))
-    st.info("💡 Có thể chỉnh sửa danh sách này trực tiếp trong file du_doan_gia_xe.py.")
-
+    
 
 def page_summary():
     st.subheader("📌 Tóm tắt dự án")
@@ -520,7 +519,7 @@ def page_seller():
         if st.button("📤 Gửi tin này cho quản trị viên duyệt"):
             st.session_state["pending_posts"].append(last_res.copy())
             st.success(
-                "✅ Đã đưa tin này vào hàng chờ cho quản trị viên duyệt (xem ở mục 'Quản trị viên')."
+                "✅ Đã đưa tin này vào hàng chờ cho quản trị viên duyệt."
             )
             # Sau khi gửi thì xóa kết quả tạm, tránh gửi trùng
             st.session_state.pop("last_seller_result", None)
@@ -651,3 +650,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
