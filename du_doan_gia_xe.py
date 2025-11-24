@@ -105,7 +105,7 @@ menu = st.sidebar.radio(
 if menu == "👥 Tên thành viên":
     st.subheader("👥 Thành viên nhóm")
 
-    # 👉 Đạo hữu chỉnh sửa danh sách này ngay trong code (không hiện lời nhắc trên UI)
+    # Danh sách thành viên – chỉnh trong code
     members = [
         "Nguyễn Trần Xuân Linh",
         "Nguyễn Văn A",
@@ -245,7 +245,7 @@ Quy trình xây dựng mô hình được triển khai trên **PySpark MLlib**:
     )
 
 # ==========================
-#  4. DỰ ĐOÁN GIÁ
+#  4. DỰ ĐOÁN GIÁ – BOX NGƯỜI MUA / NGƯỜI BÁN
 # ==========================
 elif menu == "💰 Dự đoán giá":
     st.subheader("💰 Dự đoán giá xe máy")
@@ -258,6 +258,8 @@ elif menu == "💰 Dự đoán giá":
         models = get_unique_safe("model")
         categories = get_unique_safe("category")
         capacities = get_unique_safe("engine_capacity")
+
+        st.markdown("### 🔧 Thông tin chiếc xe")
 
         col1, col2 = st.columns(2)
 
@@ -300,128 +302,102 @@ elif menu == "💰 Dự đoán giá":
                 capacities if capacities else [110, 125, 150, 155, 175, 200],
             )
 
-        if st.button("🚀 Dự đoán giá"):
-            input_info = {
-                "brand": brand,
-                "model": model_name,
-                "category": category,
-                "years_used": years_used,
-                "mileage": mileage,
-                "engine_capacity": engine_capacity,
-            }
+        # Tạo input chung
+        input_info = {
+            "brand": brand,
+            "model": model_name,
+            "category": category,
+            "years_used": years_used,
+            "mileage": mileage,
+            "engine_capacity": engine_capacity,
+        }
 
-            y_hat = predict_price(input_info)
+        buyer_tab, seller_tab = st.tabs(["💡 Cho người mua", "💼 Cho người bán"])
 
-            if y_hat is not None:
-                st.success(f"💡 Giá dự đoán: **{format_currency(y_hat)}**")
-            else:
-                st.error("Không dự đoán được giá. Vui lòng kiểm tra lại model và dữ liệu đầu vào.")
+        # ===== BOX CHO NGƯỜI MUA =====
+        with buyer_tab:
+            st.markdown(
+                """
+**Mục đích:**  
+- Hỗ trợ người mua ước lượng **giá thị trường hợp lý** cho chiếc xe với cấu hình đã nhập.
+"""
+            )
+
+            if st.button("🚀 Dự đoán giá (cho người mua)"):
+                y_hat = predict_price(input_info)
+
+                if y_hat is not None:
+                    st.success(f"✅ Giá thị trường ước tính: **{format_currency(y_hat)}**")
+
+                    st.markdown(
+                        """
+Gợi ý:
+
+- Nếu giá người bán rao **thấp hơn nhiều** so với mức này → có thể là **cơ hội tốt**, nhưng cần kiểm tra kỹ chất lượng xe.  
+- Nếu giá rao **cao hơn nhiều** → nên thương lượng hoặc cân nhắc xe khác.
+"""
+                    )
+                else:
+                    st.error("Không dự đoán được giá. Vui lòng kiểm tra lại model và dữ liệu đầu vào.")
+
+        # ===== BOX CHO NGƯỜI BÁN =====
+        with seller_tab:
+            st.markdown(
+                """
+**Mục đích:**  
+- Hỗ trợ người bán so sánh **giá rao dự định** với **giá thị trường dự đoán**.  
+- Kiểm tra xem giá rao **có quá cao / quá thấp** so với thị trường hay không.
+"""
+            )
+
+            listed_price = st.number_input(
+                "Giá rao bán dự định (VND):",
+                min_value=0.0,
+                max_value=200_000_000.0,
+                value=30_000_000.0,
+                step=500_000.0,
+            )
+
+            threshold_pct = st.slider(
+                "Ngưỡng chênh lệch cho là 'bất thường' (%):",
+                min_value=5,
+                max_value=50,
+                value=20,
+                step=5,
+            )
+
+            if st.button("🔍 Kiểm tra giá rao (cho người bán)"):
+                y_hat = predict_price(input_info)
+
+                if y_hat is None:
+                    st.error("Không dự đoán được giá. Vui lòng kiểm tra lại model.")
+                else:
+                    diff = listed_price - y_hat
+                    diff_pct = diff / y_hat * 100 if y_hat != 0 else 0.0
+
+                    st.write(f"💡 Giá thị trường (dự đoán): **{format_currency(y_hat)}**")
+                    st.write(f"💵 Giá rao bán dự định: **{format_currency(listed_price)}**")
+                    st.write(f"📊 Chênh lệch tuyệt đối: **{format_currency(diff)}**")
+                    st.write(f"📊 Chênh lệch tương đối: **{diff_pct:.1f}%**")
+
+                    if abs(diff_pct) <= threshold_pct:
+                        st.success("✅ Giá rao bán **hợp lý**, không có dấu hiệu bất thường lớn.")
+                    elif diff_pct > threshold_pct:
+                        st.warning("⚠️ Giá rao đang **cao hơn đáng kể** so với giá thị trường. Có thể cần giảm bớt nếu muốn bán nhanh.")
+                    else:
+                        st.info("💎 Giá rao đang **thấp hơn đáng kể** so với giá thị trường. Có thể bán được rất nhanh, nhưng cũng có nguy cơ bị bán 'hớ'.")
 
 # ==========================
-#  5. XÁC ĐỊNH XE BẤT THƯỜNG
+#  5. XÁC ĐỊNH XE BẤT THƯỜNG (CHỈ GIẢI THÍCH)
 # ==========================
 elif menu == "🚨 Xác định xe bất thường":
-    st.subheader("🚨 Xác định xe rao bán bất thường (quá rẻ / quá đắt)")
+    st.subheader("🚨 Xác định xe bất thường")
 
-    if model is None:
-        st.error("Chưa có model để dự đoán. Hãy kiểm tra lại file model.")
-    else:
-        st.markdown(
-            """
-Nhập thông tin chiếc xe **và giá rao bán thực tế** để kiểm tra:
+    st.info(
+        """
+Chức năng **kiểm tra xe rao bán bất thường (quá rẻ / quá đắt)**  
+đã được tích hợp trực tiếp vào **Box “Cho người bán”** trong mục **“💰 Dự đoán giá”**.
 
-- Xe có bị **rao quá cao** so với giá thị trường hay không  
-- Hoặc đang được rao **quá rẻ**, có thể là cơ hội tốt (hoặc tiềm ẩn rủi ro)
+Vui lòng chuyển sang mục **💰 Dự đoán giá** và chọn tab **“💼 Cho người bán”** để sử dụng.
 """
-        )
-
-        brands = get_unique_safe("brand")
-        models = get_unique_safe("model")
-        categories = get_unique_safe("category")
-        capacities = get_unique_safe("engine_capacity")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            brand = st.selectbox(
-                "Thương hiệu (brand):",
-                brands if brands else ["Honda", "Yamaha", "Suzuki", "Khác"],
-            )
-
-            model_name = st.selectbox(
-                "Dòng xe (model):",
-                models if models else ["Wave", "Air Blade", "Exciter", "SH", "Khác"],
-            )
-
-            category = st.selectbox(
-                "Phân khúc (category):",
-                categories if categories else ["Xe số", "Tay ga", "Côn tay", "Khác"],
-            )
-
-        with col2:
-            years_used = st.number_input(
-                "Số năm sử dụng (years_used):",
-                min_value=0.0,
-                max_value=30.0,
-                value=5.0,
-                step=0.5,
-            )
-
-            mileage = st.number_input(
-                "Số km đã đi (mileage):",
-                min_value=0.0,
-                max_value=300_000.0,
-                value=30_000.0,
-                step=1_000.0,
-            )
-
-            engine_capacity = st.selectbox(
-                "Phân khối (engine_capacity):",
-                capacities if capacities else [110, 125, 150, 155, 175, 200],
-            )
-
-        listed_price = st.number_input(
-            "Giá rao bán thực tế (VND):",
-            min_value=0.0,
-            max_value=200_000_000.0,
-            value=30_000_000.0,
-            step=500_000.0,
-        )
-
-        threshold_pct = st.slider(
-            "Ngưỡng chênh lệch cho là 'bất thường' (%):",
-            min_value=5,
-            max_value=50,
-            value=20,
-            step=5,
-        )
-
-        if st.button("🔍 Kiểm tra bất thường"):
-            input_info = {
-                "brand": brand,
-                "model": model_name,
-                "category": category,
-                "years_used": years_used,
-                "mileage": mileage,
-                "engine_capacity": engine_capacity,
-            }
-
-            y_hat = predict_price(input_info)
-
-            if y_hat is None:
-                st.error("Không dự đoán được giá. Vui lòng kiểm tra lại model.")
-            else:
-                diff = listed_price - y_hat
-                diff_pct = diff / y_hat * 100 if y_hat != 0 else 0.0
-
-                st.write(f"💡 Giá thị trường (dự đoán): **{format_currency(y_hat)}**")
-                st.write(f"💵 Giá rao bán: **{format_currency(listed_price)}**")
-                st.write(f"📊 Chênh lệch tuyệt đối: **{format_currency(diff)}**")
-                st.write(f"📊 Chênh lệch tương đối: **{diff_pct:.1f}%**")
-
-                if abs(diff_pct) <= threshold_pct:
-                    st.success("✅ Giá rao bán **hợp lý**, không có dấu hiệu bất thường lớn.")
-                elif diff_pct > threshold_pct:
-                    st.warning("⚠️ Xe đang được rao **cao hơn đáng kể** so với giá thị trường.")
-                else:
-                    st.info("💎 Xe đang được rao **thấp hơn đáng kể** so với giá thị trường (có thể là cơ hội tốt hoặc cần kiểm tra thêm chất lượng).")
+    )
