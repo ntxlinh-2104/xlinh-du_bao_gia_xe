@@ -561,7 +561,7 @@ def page_seller():
         if st.button("📤 Gửi tin này cho quản trị viên duyệt"):
             st.session_state["pending_posts"].append(last_res.copy())
             st.success(
-                "✅ Đã đưa tin này vào hàng chờ cho quản trị viên duyệt (xem ở mục 'Quản trị viên')."
+                "✅ Đã đưa tin này vào hàng chờ cho quản trị viên duyệt."
             )
             # Sau khi gửi thì xóa kết quả tạm, tránh gửi trùng
             st.session_state.pop("last_seller_result", None)
@@ -610,7 +610,7 @@ def page_admin():
 
     if decision == "Duyệt tin":
         if st.button("✅ Xác nhận duyệt tin"):
-            st.success("Tin đã được duyệt. (Demo: chỉ xoá khỏi hàng chờ trong session)")
+            st.success("Tin đã được duyệt.")
             st.session_state["pending_posts"].pop(idx)
 
     else:
@@ -692,3 +692,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
