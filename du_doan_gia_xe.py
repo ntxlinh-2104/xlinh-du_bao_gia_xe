@@ -196,15 +196,23 @@ for col in categorical_features:
 #  CÁC TRANG TRONG MENU
 # ==========================
 def page_team():
-    st.subheader("👥 Tên thành viên")
+    st.subheader("👩‍🏫 Giảng viên hướng dẫn")
+    st.write("- **Khất Thùy Phương**")
+
+    st.subheader("👨‍🎓 Học viên thực hiện")
 
     members = [
-        {"Họ tên": "Khuất Thủy Phương", "Vai trò": "Giảng viên hướng dẫn"},
-        {"Họ tên": "Phạm Văn Hải", "Vai trò": "Xây dựng mô hình phát hiện bất thường"},
-        {"Họ tên": "Nguyễn Trần Xuân Linh", "Vai trò": "Xây dựng mô hình dự báo giá"},
+        {
+            "Họ tên": "Phạm Văn Hải",
+            "Vai trò": "Xây dựng mô hình phát hiện bất thường",
+        },
+        {
+            "Họ tên": "Nguyễn Trần Xuân Linh",
+            "Vai trò": "Xây dựng mô hình dự báo giá",
+        },
     ]
     st.table(pd.DataFrame(members))
-    
+
 
 def page_summary():
     st.subheader("📌 Tóm tắt dự án")
@@ -235,9 +243,9 @@ def page_model():
 
     st.markdown(
         """
-### 3.1. Chuẩn bị và tiền xử lý dữ liệu
+### 3.1. Tiền xử lý dữ liệu
 
-Bộ dữ liệu xe máy cũ được thu thập từ **Chợ Tốt** với đầy đủ thông tin như thương hiệu, dòng xe, phân khối, số năm sử dụng, số km đã đi, giá rao bán và các đặc điểm kèm theo. Dữ liệu được làm sạch và chuẩn hóa qua các bước:
+Bộ dữ liệu xe máy cũ được thu thập từ **Chợ Tốt** với đầy đủ thông tin như: thương hiệu, dòng xe, phân khối, số năm sử dụng, số km đã đi, giá rao bán và các đặc điểm kèm theo. Dữ liệu được làm sạch và chuẩn hóa qua các bước:
 
 - Chuẩn hóa đơn vị giá (`price`, `price_min`, `price_max`, `mid_price`).
 - Loại bỏ các bản ghi thiếu thông tin quan trọng hoặc có ngoại lai quá mạnh.
@@ -253,7 +261,7 @@ Việc triển khai được thực hiện trên nền tảng **PySpark MLlib**,
 
 ---
 
-### 3.2. Huấn luyện các mô hình
+### 3.2. Xây dựng mô hình dự báo giá
 
 Nhóm tiến hành huấn luyện nhiều thuật toán khác nhau nhằm so sánh hiệu năng và chọn mô hình tối ưu, bao gồm:
 
@@ -268,10 +276,6 @@ Tất cả các mô hình đều được đánh giá bằng cùng một bộ th
 
 - **RMSE (Root Mean Squared Error)**: sai số dự báo trung bình bình phương căn bậc hai  
 - **R² (hệ số xác định)**: độ phù hợp mô hình (càng cao càng tốt)
-
----
-
-### 3.3. Kết quả và so sánh mô hình
 
 Kết quả lấy trực tiếp từ notebook huấn luyện mô hình:
 
@@ -296,18 +300,56 @@ Kết quả lấy trực tiếp từ notebook huấn luyện mô hình:
 
 → Đây là mô hình có sai số thấp nhất và mức độ giải thích biến động giá cao nhất trong các mô hình được thử nghiệm.
 
+Dựa trên các chỉ tiêu này, **GBT** được lựa chọn làm mô hình tham chiếu (benchmark tốt nhất) cho bài toán dự báo giá xe máy cũ.
+
 ---
 
-### 3.4. Kết luận lựa chọn mô hình
+### 3.3. Phát hiện giá bất thường
 
-Dựa trên kết quả đánh giá, **Gradient Boosted Trees (GBT)** được lựa chọn là mô hình tối ưu cho bài toán dự đoán giá xe máy cũ vì các lý do:
+Bên cạnh việc dự báo giá, dự án còn xây dựng quy trình **phát hiện giá đăng bán bất thường** nhằm hỗ trợ công tác kiểm duyệt và bảo vệ người dùng. Quy trình phát hiện bất thường gồm các bước:
 
-- Có **R² cao nhất** (≈ 0,8907) → mô hình giải thích tốt nhất biến động giá thị trường.
-- Có **RMSE thấp nhất** (≈ 4,56 triệu VND) → mức sai số dự báo nhỏ nhất.
-- Khả năng mô hình hóa quan hệ **phi tuyến** và tương tác giữa các biến rất tốt.
-- Ổn định và phù hợp với đặc tính dữ liệu thực tế từ thị trường xe máy cũ.
+1. **Tính Residual-z theo phân khúc**  
+   - Sử dụng mô hình XGB/GBT đã chọn để dự đoán giá cho toàn bộ tập dữ liệu.  
+   - Tính sai số dự báo:  
+     \`\`\`
+     resid = Giá_thực - Giá_dự_đoán
+     \`\`\`
+   - Chuẩn hoá sai số theo từng phân khúc (ví dụ theo segment thương hiệu–dòng xe–năm sử dụng) để thu được **residual-z**, giúp so sánh sai số trong cùng nhóm xe tương đồng.
 
-> 💡 **Kết luận:** Mô hình **Gradient Boosted Trees (GBT)** được chọn làm mô hình cuối cùng vì cho hiệu năng vượt trội nhất, đồng thời phù hợp nhất với dữ liệu và mục tiêu của dự án dự báo giá xe máy cũ.
+2. **Kiểm tra vi phạm khoảng giá min/max**  
+   - Đối với từng phân khúc, xác định khoảng giá hợp lý \`[Giá_min, Giá_max]\`.  
+   - Những tin có \`Giá_thực\` vượt ngoài khoảng này được đánh dấu là **vi phạm min/max** (quá thấp hoặc quá cao so với mặt bằng cùng phân khúc).
+
+3. **Kiểm tra ngoài khoảng tin cậy theo phân vị**  
+   - Xác định khoảng tin cậy dựa trên phân vị, ví dụ \`[P10, P90]\` của giá trong từng phân khúc.  
+   - Các tin có \`Giá_thực ∉ [P10, P90]\` được coi là **bất thường về phân vị**, có thể là rao quá rẻ hoặc quá đắt so với đa số.
+
+4. **Phát hiện bất thường bằng thuật toán Unsupervised (One-Class SVM)**  
+   - Xây dựng vector đặc trưng tổng hợp cho từng tin đăng, bao gồm:
+     - residual-z,
+     - tín hiệu vi phạm min/max,
+     - vị trí so với \`[P10, P90]\`,
+     - và các đặc trưng quan trọng khác.  
+   - Huấn luyện mô hình **One-Class SVM** để nhận diện các điểm dữ liệu “xa lạ” so với đa số tin đăng bình thường.
+
+5. **Tổng hợp tín hiệu và tính điểm bất thường (0–100)**  
+   - Kết hợp bốn nhóm tín hiệu bất thường chính với trọng số:
+     - \`w1 = 0.45\` cho residual-z,
+     - \`w2 = 0.20\` cho vi phạm min/max,
+     - \`w3 = 0.15\` cho vi phạm khoảng phân vị \`[P10, P90]\`,
+     - \`w4 = 0.20\` cho tín hiệu từ One-Class SVM.  
+   - Mỗi tin đăng được gán một **điểm bất thường** trên thang 0–100; điểm càng cao thể hiện mức độ nghi ngờ càng lớn.
+
+6. **Chọn ngưỡng và gắn cờ bất thường**  
+   - Lấy **top 5%** tin đăng có điểm bất thường cao nhất làm **nhóm nghi ngờ bất thường mạnh**.  
+   - Các tin này sẽ được chuyển sang **khu vực quản trị viên** trong ứng dụng để xem xét, duyệt hoặc từ chối, kèm theo lý do giải thích cho người đăng.
+
+Quy trình này giúp kết hợp cả:
+- Thông tin từ mô hình dự báo giá,
+- Thống kê phân khúc theo thị trường,
+- Và thuật toán học không giám sát,
+
+→ tạo ra một hệ thống phát hiện giá bất thường có tính linh hoạt và khả năng giải thích tốt, hỗ trợ hiệu quả cho việc kiểm duyệt trong thực tế.
 """
     )
 
@@ -519,7 +561,7 @@ def page_seller():
         if st.button("📤 Gửi tin này cho quản trị viên duyệt"):
             st.session_state["pending_posts"].append(last_res.copy())
             st.success(
-                "✅ Đã đưa tin này vào hàng chờ cho quản trị viên duyệt."
+                "✅ Đã đưa tin này vào hàng chờ cho quản trị viên duyệt (xem ở mục 'Quản trị viên')."
             )
             # Sau khi gửi thì xóa kết quả tạm, tránh gửi trùng
             st.session_state.pop("last_seller_result", None)
@@ -568,7 +610,7 @@ def page_admin():
 
     if decision == "Duyệt tin":
         if st.button("✅ Xác nhận duyệt tin"):
-            st.success("Tin đã được duyệt.")
+            st.success("Tin đã được duyệt. (Demo: chỉ xoá khỏi hàng chờ trong session)")
             st.session_state["pending_posts"].pop(idx)
 
     else:
@@ -650,6 +692,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
