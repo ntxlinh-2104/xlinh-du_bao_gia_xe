@@ -27,11 +27,13 @@ if "pending_posts" not in st.session_state:
 # ==========================
 DATA_PATH = "motorbike_cleaned.csv"
 
-# 4 banner nằm cùng thư mục với file .py
-BANNER_HOME = "Home.jpg"   # Tóm tắt dự án
-BANNER_BUYER = "mua.jpg"   # Dự đoán giá (người mua)
-BANNER_SELLER = "ban.jpg"  # Định giá & phát hiện bất thường (người bán)
-BANNER_ADMIN = "adim.jpg"  # Quản trị viên
+# Banner dùng cho từng “sheet”
+BANNER_TEAM = "xe_may_cu.jpg"   # Tên thành viên
+BANNER_SUMMARY = "Home.jpg"     # Tóm tắt dự án
+BANNER_MODEL = "mo_hinh.jpg"    # Xây dựng mô hình
+BANNER_BUYER = "mua.jpg"        # Dự đoán giá (người mua)
+BANNER_SELLER = "ban.jpg"       # Định giá & phát hiện xe bất thường (người bán)
+BANNER_ADMIN = "adim.jpg"       # Quản trị viên (giữ nguyên trong page_admin)
 
 
 # ==========================
@@ -52,13 +54,9 @@ df = load_data()
 
 
 # ==========================
-#  BIỂU ĐỒ TOP 5 (KHÔNG CÒN BANNER CŨ)
+#  BIỂU ĐỒ TOP 5 MODEL
 # ==========================
-def show_banner_and_top5():
-    """
-    Hiển thị biểu đồ Top 5 model. Banner cho tóm tắt dự án
-    đã được chuyển sang page_summary(), không dùng ở đây nữa.
-    """
+def show_top5_models():
     if df is not None and "model" in df.columns:
         st.subheader("📊 Các dòng xe phổ biến nhất trên thị trường (Top 5)")
 
@@ -246,12 +244,8 @@ def page_summary():
 """
     )
 
-    # Banner cho trang tóm tắt (sau phần mô tả, trước biểu đồ)
-    if os.path.exists(BANNER_HOME):
-        st.image(BANNER_HOME, use_container_width=True)
-
     # Biểu đồ Top 5 model
-    show_banner_and_top5()
+    show_top5_models()
 
 
 def page_model():
@@ -374,10 +368,6 @@ def page_buyer():
     st.markdown("## 🚀 Dự đoán giá xe máy – Người mua")
     st.subheader("📘 Nhập thông tin xe để dự đoán")
 
-    # Banner cho trang người mua (sau tiêu đề)
-    if os.path.exists(BANNER_BUYER):
-        st.image(BANNER_BUYER, use_container_width=True)
-
     model = load_model()
 
     with st.form("form_du_doan"):
@@ -436,10 +426,6 @@ def page_buyer():
 def page_seller():
     st.markdown("## 🧭 Phát hiện giá đăng bán bất thường – Người bán")
     st.subheader("📦 Kiểm tra mức giá bạn định đăng")
-
-    # Banner cho trang người bán
-    if os.path.exists(BANNER_SELLER):
-        st.image(BANNER_SELLER, use_container_width=True)
 
     model = load_model()
 
@@ -572,7 +558,7 @@ def page_seller():
             st.session_state.pop("last_seller_result", None)
             return
 
-    # ========== NÚT GỬI CHO QUẢN TRỊ VIÊN (DÙNG KẾT QUẢ LƯU TRONG SESSION) ==========
+    # ========== NÚT GỬI CHO QUẢN TRỊ VIÊN ==========
     last_res = st.session_state.get("last_seller_result", None)
 
     if last_res and last_res["level"] in ["too_low", "too_high"]:
@@ -594,7 +580,7 @@ def page_seller():
 def page_admin():
     st.subheader("🛠 Khu vực quản trị viên")
 
-    # Banner cho trang admin
+    # Banner giữ nguyên trong sheet quản trị viên
     if os.path.exists(BANNER_ADMIN):
         st.image(BANNER_ADMIN, use_container_width=True)
 
@@ -690,7 +676,7 @@ def main():
     st.title("🛵 Ứng dụng dự đoán giá xe máy cũ")
     st.caption("Big Data & Machine Learning — Demo dự án định giá xe máy cũ")
 
-    # Sidebar điều hướng gọn gàng hơn
+    # Sidebar điều hướng
     st.sidebar.title("🔎 Chức năng")
     menu = st.sidebar.radio(
         "",
@@ -704,6 +690,25 @@ def main():
         ],
     )
 
+    # ----- Banner ngay dưới title + caption, tùy theo sheet -----
+    if menu == "Tên thành viên":
+        if os.path.exists(BANNER_TEAM):
+            st.image(BANNER_TEAM, use_container_width=True)
+    elif menu == "Tóm tắt dự án":
+        if os.path.exists(BANNER_SUMMARY):
+            st.image(BANNER_SUMMARY, use_container_width=True)
+    elif menu == "Xây dựng mô hình":
+        if os.path.exists(BANNER_MODEL):
+            st.image(BANNER_MODEL, use_container_width=True)
+    elif menu == "Dự đoán giá (người mua)":
+        if os.path.exists(BANNER_BUYER):
+            st.image(BANNER_BUYER, use_container_width=True)
+    elif menu == "Định giá & phát hiện xe bất thường (người bán)":
+        if os.path.exists(BANNER_SELLER):
+            st.image(BANNER_SELLER, use_container_width=True)
+    # Riêng "Quản trị viên" giữ banner trong page_admin()
+
+    # ----- Nội dung từng trang -----
     if menu == "Tên thành viên":
         page_team()
     elif menu == "Tóm tắt dự án":
