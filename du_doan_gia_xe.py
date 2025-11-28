@@ -23,11 +23,20 @@ if "pending_posts" not in st.session_state:
     st.session_state["pending_posts"] = []
 
 # ==========================
-#  HÀM LOAD DATA
+#  ĐƯỜNG DẪN DATA & BANNER
 # ==========================
 DATA_PATH = "motorbike_cleaned.csv"
 
+# 4 banner nằm cùng thư mục với file .py
+BANNER_HOME = "Home.jpg"   # Tóm tắt dự án
+BANNER_BUYER = "mua.jpg"   # Dự đoán giá (người mua)
+BANNER_SELLER = "ban.jpg"  # Định giá & phát hiện bất thường (người bán)
+BANNER_ADMIN = "adim.jpg"  # Quản trị viên
 
+
+# ==========================
+#  HÀM LOAD DATA
+# ==========================
 @st.cache_data
 def load_data():
     df_local = None
@@ -41,15 +50,15 @@ def load_data():
 
 df = load_data()
 
+
 # ==========================
-#  ẢNH BANNER & BIỂU ĐỒ TOP 5 (trang Tóm tắt)
+#  BIỂU ĐỒ TOP 5 (KHÔNG CÒN BANNER CŨ)
 # ==========================
 def show_banner_and_top5():
-    # Ảnh banner
-    if os.path.exists("xe_may_cu.jpg"):
-        st.image("xe_may_cu.jpg", use_container_width=True)
-
-    # Biểu đồ top 5 model
+    """
+    Hiển thị biểu đồ Top 5 model. Banner cho tóm tắt dự án
+    đã được chuyển sang page_summary(), không dùng ở đây nữa.
+    """
     if df is not None and "model" in df.columns:
         st.subheader("📊 Các dòng xe phổ biến nhất trên thị trường (Top 5)")
 
@@ -113,6 +122,7 @@ def format_vnd(x):
 expected_features = ["mileage", "years_used", "model", "category"]
 numeric_features = ["mileage", "years_used"]
 categorical_features = ["model", "category"]
+
 
 # ==========================
 #  TRAIN MÔ HÌNH TRỰC TIẾP TỪ CSV
@@ -216,7 +226,6 @@ def page_team():
 
 def page_summary():
     st.subheader("📌 Tóm tắt dự án")
-    show_banner_and_top5()
 
     st.markdown(
         """
@@ -236,6 +245,13 @@ def page_summary():
   - `category` – loại xe.
 """
     )
+
+    # Banner cho trang tóm tắt (sau phần mô tả, trước biểu đồ)
+    if os.path.exists(BANNER_HOME):
+        st.image(BANNER_HOME, use_container_width=True)
+
+    # Biểu đồ Top 5 model
+    show_banner_and_top5()
 
 
 def page_model():
@@ -358,6 +374,10 @@ def page_buyer():
     st.markdown("## 🚀 Dự đoán giá xe máy – Người mua")
     st.subheader("📘 Nhập thông tin xe để dự đoán")
 
+    # Banner cho trang người mua (sau tiêu đề)
+    if os.path.exists(BANNER_BUYER):
+        st.image(BANNER_BUYER, use_container_width=True)
+
     model = load_model()
 
     with st.form("form_du_doan"):
@@ -416,6 +436,10 @@ def page_buyer():
 def page_seller():
     st.markdown("## 🧭 Phát hiện giá đăng bán bất thường – Người bán")
     st.subheader("📦 Kiểm tra mức giá bạn định đăng")
+
+    # Banner cho trang người bán
+    if os.path.exists(BANNER_SELLER):
+        st.image(BANNER_SELLER, use_container_width=True)
 
     model = load_model()
 
@@ -570,6 +594,10 @@ def page_seller():
 def page_admin():
     st.subheader("🛠 Khu vực quản trị viên")
 
+    # Banner cho trang admin
+    if os.path.exists(BANNER_ADMIN):
+        st.image(BANNER_ADMIN, use_container_width=True)
+
     pending = st.session_state.get("pending_posts", [])
 
     if not pending:
@@ -692,4 +720,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
